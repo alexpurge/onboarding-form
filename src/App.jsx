@@ -27,7 +27,8 @@ const customStyles = `
   
   .ph-header-area { margin-bottom: 2rem; display: flex; flex-direction: column; align-items: center; }
   .ph-logo-wrap { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
-  .ph-logo-box { width: 2.5rem; height: 2.5rem; background-color: var(--primary); border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 20px rgba(255,93,0,0.5); }
+  .ph-logo-box { width: 2.5rem; height: 2.5rem; background-color: #111111; border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(255,93,0,0.3); overflow: hidden; }
+  .ph-logo-image { width: 100%; height: 100%; object-fit: cover; }
   .ph-logo-text { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
   .ph-logo-char { color: white; font-weight: bold; font-size: 1.25rem; }
 
@@ -142,7 +143,8 @@ const IMPORT_NUMBERS = [
 // 4. MAIN APPLICATION COMPONENT
 // ==========================================
 export default function App() {
-  const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/8Km9tLL.png';
+  const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/QjjDjuU.png';
+  const PURGEHUB_LOGO_URL = 'https://i.imgur.com/QjjDjuU.png';
 
   const [step, setStep] = useState(0);
   const [flowView, setFlowView] = useState('import');
@@ -733,7 +735,9 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
           
           <div className="ph-header-area">
             <div className="ph-logo-wrap">
-              <div className="ph-logo-box"><span className="ph-logo-char">P</span></div>
+              <div className="ph-logo-box">
+                <img src={PURGEHUB_LOGO_URL} alt="PurgeHub logo" className="ph-logo-image" />
+              </div>
               <h1 className="ph-logo-text">Purge Hub</h1>
             </div>
             
