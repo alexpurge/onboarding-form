@@ -20,10 +20,10 @@ const customStyles = `
 
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
   
-  .ph-wrapper { min-height: 100dvh; width: 100%; background-color: var(--bg-dark); color: var(--text-main); display: flex; align-items: stretch; justify-content: stretch; padding: 0; position: relative; overflow: hidden; }
+  .ph-wrapper { min-height: 100dvh; width: 100%; background-color: var(--bg-dark); color: var(--text-main); display: flex; align-items: center; justify-content: center; padding: clamp(1rem, 3vw, 2rem); position: relative; overflow: hidden; }
   .ph-glow { position: fixed; top: 0; left: 25%; width: 24rem; height: 24rem; background-color: var(--primary); border-radius: 50%; mix-blend-mode: screen; filter: blur(150px); opacity: 0.1; pointer-events: none; }
   
-  .ph-main-container { width: 100%; min-height: 100dvh; position: relative; z-index: 10; padding: 1rem; display: flex; flex-direction: column; }
+  .ph-main-container { width: min(100%, 64rem); min-height: auto; max-height: calc(100dvh - (clamp(1rem, 3vw, 2rem) * 2)); position: relative; z-index: 10; display: flex; flex-direction: column; }
   
   .ph-header-area { margin-bottom: 2rem; display: flex; flex-direction: column; align-items: center; }
   .ph-logo-wrap { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
