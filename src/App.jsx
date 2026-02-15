@@ -143,11 +143,13 @@ const IMPORT_NUMBERS = [
 // ==========================================
 export default function App() {
   const [step, setStep] = useState(0);
+  const [flowView, setFlowView] = useState('import');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState("");
   const [keysText, setKeysText] = useState("");
   const [parsedKeys, setParsedKeys] = useState({});
   const [copied, setCopied] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('Australia');
 
   // Master State
   const [formData, setFormData] = useState({
@@ -265,7 +267,7 @@ export default function App() {
       }
     },
 
-    publishAircallFlow: async (data, keys) => {
+    publishAircallFlow: async (data) => {
        console.log("EXECUTING PUT TO AIRCALL ROUTING API...");
        console.log("Payload configuration:", data.flowNodes);
        // Complex nested JSON structure for routing endpoints
@@ -308,6 +310,23 @@ export default function App() {
   // HANDLERS
   // ==========================================
   const updateData = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
+  const moveFlowNode = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= formData.flowNodes.length) return;
+    const nextNodes = [...formData.flowNodes];
+    [nextNodes[index], nextNodes[targetIndex]] = [nextNodes[targetIndex], nextNodes[index]];
+    updateData('flowNodes', nextNodes);
+  };
+
+  const addFlowNode = () => {
+    const nextId = Date.now();
+    updateData('flowNodes', [...formData.flowNodes, { id: nextId, type: 'ringTo', duration: 20 }]);
+  };
+
+  const removeFlowNode = (index) => {
+    const nextNodes = formData.flowNodes.filter((_, idx) => idx !== index);
+    updateData('flowNodes', nextNodes);
+  };
 
   const handleNext = async () => {
     if (step === 0) setParsedKeys(api.parseKeys(keysText));
@@ -469,7 +488,8 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
         <Icons.Phone className="ph-title-icon" />
         <h2 className="ph-title">Aircall: Create Number</h2>
       </div>
-      <Select label="Country" value={formData.acCountry} onChange={(v) => updateData('acCountry', v)} options={[{ value: 'Australia', label: '🇦🇺 Australia' }, { value: 'United States', label: '🇺🇸 United States' }, { value: 'United Kingdom', label: '🇬🇧 United Kingdom' }]} />
+      <Input label="Search Country" value={countrySearch} onChange={setCountrySearch} placeholder="Search countries" />
+      <Select label="Country" value={formData.acCountry} onChange={(v) => updateData('acCountry', v)} options={[{ value: 'Australia', label: '🇦🇺 Australia' }, { value: 'United States', label: '🇺🇸 United States' }, { value: 'United Kingdom', label: '🇬🇧 United Kingdom' }].filter((country) => country.value.toLowerCase().includes(countrySearch.toLowerCase()))} />
       <div className="ph-grid-2">
         <Select label="Type" value={formData.acType} onChange={(v) => updateData('acType', v)} options={[ { value: 'Local', label: 'Local' }, { value: 'Mobile', label: 'Mobile' } ]} />
         <Select label="Region" value={formData.acRegion} onChange={(v) => updateData('acRegion', v)} options={[ { value: '4', label: 'Mobile (4)' } ]} />
@@ -479,8 +499,7 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
   );
 
   const renderAircallFlow = () => {
-    const [view, setView] = useState('import');
-    if (view === 'import') {
+    if (flowView === 'import') {
       return (
         <div className="animate-fade-in">
            <div className="ph-title-wrap">
@@ -502,14 +521,14 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
                <Checkbox label="Set same integrations" checked={formData.flowUseSimilar} onChange={(v) => updateData('flowUseSimilar', v)} />
             </div>
           </div>
-          <button onClick={() => { setIsLoading(true); setLoadingText("Importing Flow Data..."); setTimeout(() => { setIsLoading(false); setView('success'); }, 1000); }} className="ph-btn ph-btn-outline">
+          <button onClick={() => { setIsLoading(true); setLoadingText("Importing Flow Data..."); setTimeout(() => { setIsLoading(false); setFlowView('success'); }, 1000); }} className="ph-btn ph-btn-outline">
             <Icons.Upload size={16} /> <span>Import Setup</span>
           </button>
         </div>
       );
     }
 
-    if (view === 'success') {
+    if (flowView === 'success') {
       return (
         <div className="animate-fade-in" style={{ textAlign: 'center', padding: '2.5rem 0' }}>
           <div style={{ width: '5rem', height: '5rem', backgroundColor: 'rgba(255,93,0,0.2)', borderRadius: '50%', margin: '0 auto 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -517,7 +536,7 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
           </div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>Import Successful</h2>
           <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Call distribution rules and integrations have been synced.</p>
-          <button onClick={() => { if(formData.flowNodes.length === 0) updateData('flowNodes', [{ id: 1, type: 'ringTo', duration: 20 }]); setView('editor'); }} className="ph-btn ph-btn-primary">
+          <button onClick={() => { if(formData.flowNodes.length === 0) updateData('flowNodes', [{ id: 1, type: 'ringTo', duration: 20 }]); setFlowView('editor'); }} className="ph-btn ph-btn-primary">
             <Icons.GitMerge size={16} /> <span>See Call Distribution</span>
           </button>
         </div>
@@ -546,10 +565,39 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
             <React.Fragment key={node.id}>
               <div className="ph-node">
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--primary)', textTransform: 'uppercase' }}>Ring To</span>
-                  <Icons.Settings size={16} color="var(--text-muted)" style={{ cursor: 'pointer' }} />
+                  <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--primary)', textTransform: 'uppercase' }}>{node.type}</span>
+                  <div style={{ display: 'flex', gap: '0.3rem' }}>
+                    <button className="ph-btn ph-btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => moveFlowNode(idx, -1)} disabled={idx === 0}>
+                      ↑
+                    </button>
+                    <button className="ph-btn ph-btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => moveFlowNode(idx, 1)} disabled={idx === formData.flowNodes.length - 1}>
+                      ↓
+                    </button>
+                    <button className="ph-btn ph-btn-ghost" style={{ padding: '0.2rem 0.4rem', color: '#ef4444' }} onClick={() => removeFlowNode(idx)}>
+                      ✕
+                    </button>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <Select
+                    label="Step Type"
+                    value={node.type}
+                    onChange={(value) => {
+                      const nextNodes = [...formData.flowNodes];
+                      nextNodes[idx].type = value;
+                      updateData('flowNodes', nextNodes);
+                    }}
+                    options={[
+                      { value: 'dateRule', label: 'Date Rule' },
+                      { value: 'timeRule', label: 'Time Rule' },
+                      { value: 'audioMessage', label: 'Audio Message' },
+                      { value: 'standardIVR', label: 'Standard IVR' },
+                      { value: 'inputIVR', label: 'Input IVR' },
+                      { value: 'waitingExperience', label: 'Waiting Experience' },
+                      { value: 'ringTo', label: 'Ring To' },
+                      { value: 'voicemail', label: 'Voicemail' }
+                    ]}
+                  />
                   <div>
                     <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>Selected User</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'black', border: '1px solid var(--border-light)', padding: '0.5rem', borderRadius: '0.25rem' }}>
@@ -564,10 +612,15 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
                 </div>
               </div>
               <div className="ph-line">
-                 <button className="ph-add-btn"><Icons.Plus size={12} /></button>
+                 <button className="ph-add-btn" onClick={addFlowNode}><Icons.Plus size={12} /></button>
               </div>
             </React.Fragment>
           ))}
+          {formData.flowNodes.length === 0 && (
+            <button className="ph-btn ph-btn-outline" style={{ width: 'auto' }} onClick={addFlowNode}>
+              <Icons.Plus size={16} /> <span>Add First Step</span>
+            </button>
+          )}
            <div className="ph-node-end">
             <span style={{ fontSize: '0.875rem', fontWeight: '500', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Icons.AlertCircle size={16} /> Voicemail / End Call
