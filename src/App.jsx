@@ -142,6 +142,8 @@ const IMPORT_NUMBERS = [
 // 4. MAIN APPLICATION COMPONENT
 // ==========================================
 export default function App() {
+  const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/8Km9tLL.png';
+
   const [step, setStep] = useState(0);
   const [flowView, setFlowView] = useState('import');
   const [isLoading, setIsLoading] = useState(false);
@@ -153,7 +155,7 @@ export default function App() {
 
   // Master State
   const [formData, setFormData] = useState({
-    firstName: '', lastName: '', photoUrl: '', googleEmail: '', googlePassword: '',
+    firstName: '', lastName: '', photoUrl: HARDCODED_PROFILE_PHOTO_URL, googleEmail: '', googlePassword: '',
     aircallRole: 'agent', aircallTeam: '',
     acCountry: 'Australia', acType: 'Mobile', acRegion: '4', acName: '',
     flowImportTarget: '', flowAdjustSteps: false, flowUseSimilar: false, flowNodes: [],
@@ -162,11 +164,15 @@ export default function App() {
 
   // Auto-gen email
   useEffect(() => {
-    if (formData.firstName) {
-      const email = `${formData.firstName.toLowerCase().replace(/[^a-z0-9]/g, '')}@purgedigital.com`;
-      setFormData(prev => ({ ...prev, googleEmail: email }));
-    }
+    const firstNameSlug = formData.firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const email = firstNameSlug ? `${firstNameSlug}@purgedigital.com.au` : '';
+    setFormData(prev => ({ ...prev, googleEmail: email }));
   }, [formData.firstName]);
+
+  useEffect(() => {
+    const fullName = `${formData.firstName} ${formData.lastName}`.trim();
+    setFormData(prev => ({ ...prev, acName: fullName }));
+  }, [formData.firstName, formData.lastName]);
 
   // ==========================================
   // 5. DIRECT API INTERACTION LAYER 
@@ -455,7 +461,10 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
           <div style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#666' }}>
             <Icons.Upload size={16} />
           </div>
-          <input type="text" value={formData.photoUrl} onChange={(e) => updateData('photoUrl', e.target.value)} placeholder="https://i.imgur.com/..." className="ph-input" style={{ paddingLeft: '2.5rem' }} />
+          <input type="text" value={formData.photoUrl} readOnly disabled className="ph-input" style={{ paddingLeft: '2.5rem', paddingRight: '2.5rem' }} />
+          <div style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--success)' }}>
+            <Icons.Check size={16} />
+          </div>
         </div>
         {formData.photoUrl && (
           <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
@@ -494,7 +503,7 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
         <Select label="Type" value={formData.acType} onChange={(v) => updateData('acType', v)} options={[ { value: 'Local', label: 'Local' }, { value: 'Mobile', label: 'Mobile' } ]} />
         <Select label="Region" value={formData.acRegion} onChange={(v) => updateData('acRegion', v)} options={[ { value: '4', label: 'Mobile (4)' } ]} />
       </div>
-      <Input label="Name the Number" value={formData.acName} onChange={(v) => updateData('acName', v)} placeholder="e.g. Purge AU Sales" />
+      <Input label="Name the Number (Synced)" value={formData.acName} onChange={() => {}} disabled={true} />
     </div>
   );
 
