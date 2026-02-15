@@ -139,6 +139,43 @@ const IMPORT_NUMBERS = [
   { id: 'n2', number: '+61 411 111 111', name: 'Support Hotline' }
 ];
 
+const Input = ({ label, value, onChange, placeholder, disabled, type = "text" }) => (
+  <div className="ph-input-group">
+    <label className="ph-label">{label}</label>
+    <input
+      type={type}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
+      className="ph-input"
+    />
+  </div>
+);
+
+const Select = ({ label, value, onChange, options }) => (
+  <div className="ph-input-group">
+    <label className="ph-label">{label}</label>
+    <div className="ph-select-wrap">
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="ph-select">
+        <option value="" disabled>Select {label}</option>
+        {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+      </select>
+      <Icons.ChevronRight className="ph-select-arrow" style={{ transform: 'translateY(-50%) rotate(90deg)' }} />
+    </div>
+  </div>
+);
+
+const Checkbox = ({ label, checked, onChange }) => (
+  <label className="ph-checkbox-label">
+    <div className={`ph-checkbox-box ${checked ? 'checked' : ''}`}>
+      {checked && <Icons.Check size={14} color="white" />}
+    </div>
+    <span className="ph-checkbox-text">{label}</span>
+    <input type="checkbox" className="ph-checkbox-input" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+  </label>
+);
+
 // ==========================================
 // 4. MAIN APPLICATION COMPONENT
 // ==========================================
@@ -381,39 +418,6 @@ export default function App() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
-  // ==========================================
-  // REUSABLE UI COMPONENTS
-  // ==========================================
-  const Input = ({ label, value, onChange, placeholder, disabled, type="text" }) => (
-    <div className="ph-input-group">
-      <label className="ph-label">{label}</label>
-      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} disabled={disabled} className="ph-input" />
-    </div>
-  );
-
-  const Select = ({ label, value, onChange, options }) => (
-    <div className="ph-input-group">
-      <label className="ph-label">{label}</label>
-      <div className="ph-select-wrap">
-        <select value={value} onChange={(e) => onChange(e.target.value)} className="ph-select">
-          <option value="" disabled>Select {label}</option>
-          {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-        </select>
-        <Icons.ChevronRight className="ph-select-arrow" style={{transform: 'translateY(-50%) rotate(90deg)'}}/>
-      </div>
-    </div>
-  );
-
-  const Checkbox = ({ label, checked, onChange }) => (
-    <label className="ph-checkbox-label">
-      <div className={`ph-checkbox-box ${checked ? 'checked' : ''}`}>
-        {checked && <Icons.Check size={14} color="white" />}
-      </div>
-      <span className="ph-checkbox-text">{label}</span>
-      <input type="checkbox" className="ph-checkbox-input" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-    </label>
-  );
 
   // ==========================================
   // STEP RENDERERS
