@@ -20,10 +20,10 @@ const customStyles = `
 
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
   
-  .ph-wrapper { min-height: 100vh; background-color: var(--bg-dark); color: var(--text-main); display: flex; align-items: center; justify-content: center; padding: 1rem; position: relative; overflow: hidden; }
+  .ph-wrapper { min-height: 100dvh; width: 100%; background-color: var(--bg-dark); color: var(--text-main); display: flex; align-items: stretch; justify-content: stretch; padding: 0; position: relative; overflow: hidden; }
   .ph-glow { position: fixed; top: 0; left: 25%; width: 24rem; height: 24rem; background-color: var(--primary); border-radius: 50%; mix-blend-mode: screen; filter: blur(150px); opacity: 0.1; pointer-events: none; }
   
-  .ph-main-container { width: 100%; max-width: 42rem; position: relative; z-index: 10; }
+  .ph-main-container { width: 100%; min-height: 100dvh; position: relative; z-index: 10; padding: 1rem; display: flex; flex-direction: column; }
   
   .ph-header-area { margin-bottom: 2rem; display: flex; flex-direction: column; align-items: center; }
   .ph-logo-wrap { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
@@ -38,7 +38,7 @@ const customStyles = `
   .ph-progress-dot.active { background-color: var(--primary); color: white; box-shadow: 0 0 10px rgba(255,93,0,0.8); border-color: var(--primary); }
   .ph-progress-dot.passed { background-color: var(--primary); color: white; border-color: var(--primary); }
 
-  .ph-card { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; position: relative; min-height: 400px; display: flex; flex-direction: column; }
+  .ph-card { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; position: relative; min-height: 0; flex: 1; display: flex; flex-direction: column; }
   .ph-card-content { padding: 2rem; flex: 1; }
   .ph-card-footer { padding: 1.25rem 2rem; border-top: 1px solid var(--border); background-color: #0f0f0f; display: flex; justify-content: space-between; align-items: center; }
 
