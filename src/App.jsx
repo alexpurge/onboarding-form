@@ -173,10 +173,10 @@ const Icons = {
 // ==========================================
 // 3. MOCK DATA 
 // ==========================================
-const AIRCALL_TEAMS = [
-  { id: 't1', name: 'Sales Team - APAC' },
-  { id: 't2', name: 'Support Squad' },
-  { id: 't3', name: 'Management' }
+const DEFAULT_AIRCALL_ROLES = [
+  { id: 'agent', name: 'Agent' },
+  { id: 'supervisor', name: 'Supervisor' },
+  { id: 'admin', name: 'Admin' }
 ];
 
 const IMPORT_NUMBERS = [
@@ -317,6 +317,9 @@ export default function App() {
   const [errorLogs, setErrorLogs] = useState([]);
   const [copied, setCopied] = useState(false);
   const [countrySearch, setCountrySearch] = useState('Australia');
+  const [aircallRoles, setAircallRoles] = useState(DEFAULT_AIRCALL_ROLES);
+  const [aircallTeams, setAircallTeams] = useState([]);
+  const [aircallCatalogStatus, setAircallCatalogStatus] = useState('Waiting for Aircall authentication to load roles and teams.');
   const progressSteps = 5;
   const activeProgressStep = Math.min(Math.max(step, 1), progressSteps);
   const progressFill = ((activeProgressStep - 1) / (progressSteps - 1)) * 100;
@@ -554,7 +557,8 @@ export default function App() {
           first_name: data.firstName,
           last_name: data.lastName,
           email: data.googleEmail,
-          role: data.aircallRole
+          role: data.aircallRole,
+          team_ids: data.aircallTeam ? [Number(data.aircallTeam)] : []
         })
       });
 
@@ -820,6 +824,67 @@ export default function App() {
     throw new Error(`Aircall authentication failed. Confirm the Aircall API token is valid. ${lastError}`);
   };
 
+  const fetchAllAircallPages = async ({ path, collectionKey, headers }) => {
+    let page = 1;
+    const perPage = 50;
+    let hasMore = true;
+    const allItems = [];
+
+    while (hasMore && page <= 100) {
+      const separator = path.includes('?') ? '&' : '?';
+      const response = await fetch(`https://api.aircall.io${path}${separator}page=${page}&per_page=${perPage}`, {
+        method: 'GET',
+        headers
+      });
+
+      if (!response.ok) throw new Error(await formatErrorForDisplay(response));
+
+      const payload = await response.json();
+      const batch = Array.isArray(payload?.[collectionKey]) ? payload[collectionKey] : [];
+      allItems.push(...batch);
+
+      const nextPage = payload?.meta?.next_page;
+      const totalPages = payload?.meta?.total_pages;
+      const hasNextLink = Boolean(payload?.meta?.next_page_link);
+
+      if (hasNextLink || (Number.isFinite(nextPage) && nextPage > page) || (Number.isFinite(totalPages) && page < totalPages)) {
+        page += 1;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return allItems.filter((item, index, arr) => arr.findIndex((candidate) => candidate?.id === item?.id) === index);
+  };
+
+  const fetchAircallCatalog = async (keys) => {
+    const { authHeader } = getAircallCredentials(keys);
+    const headers = { Authorization: `Basic ${authHeader}` };
+
+    const [teams, users] = await Promise.all([
+      fetchAllAircallPages({ path: '/v1/teams', collectionKey: 'teams', headers }),
+      fetchAllAircallPages({ path: '/v1/users', collectionKey: 'users', headers })
+    ]);
+
+    const roleMap = new Map(DEFAULT_AIRCALL_ROLES.map((role) => [String(role.id), role]));
+    for (const user of users) {
+      if (user?.role) {
+        const roleId = String(user.role).toLowerCase();
+        if (!roleMap.has(roleId)) {
+          const normalizedLabel = roleId.charAt(0).toUpperCase() + roleId.slice(1);
+          roleMap.set(roleId, { id: roleId, name: normalizedLabel });
+        }
+      }
+    }
+
+    return {
+      roles: Array.from(roleMap.values()),
+      teams: teams
+        .filter((team) => team?.id && team?.name)
+        .map((team) => ({ id: String(team.id), name: team.name }))
+    };
+  };
+
 
   const startProvision = (items) => {
     setProvisionError('');
@@ -851,9 +916,35 @@ export default function App() {
 
     updateAuthStatus('aircall', 'inprogress', 'Authenticating API credentials...');
     await validateAircallAuth(keys);
-    updateAuthStatus('aircall', 'success', 'Access verified');
+
+    updateAuthStatus('aircall', 'inprogress', 'Fetching all Aircall roles and teams...');
+    const aircallCatalog = await fetchAircallCatalog(keys);
+    setAircallRoles(aircallCatalog.roles);
+    setAircallTeams(aircallCatalog.teams);
+    setAircallCatalogStatus(`Loaded ${aircallCatalog.roles.length} roles and ${aircallCatalog.teams.length} teams from Aircall.`);
+
+    setFormData((prev) => {
+      const roleExists = aircallCatalog.roles.some((role) => role.id === prev.aircallRole);
+      const teamExists = aircallCatalog.teams.some((team) => team.id === prev.aircallTeam);
+
+      return {
+        ...prev,
+        aircallRole: roleExists ? prev.aircallRole : (aircallCatalog.roles[0]?.id || ''),
+        aircallTeam: teamExists ? prev.aircallTeam : ''
+      };
+    });
+
+    updateAuthStatus('aircall', 'success', 'Access verified and Aircall catalog synced');
 
     setParsedKeys({ ...keys, GOOGLE_ADMIN_TOKEN: verifiedGoogleToken || keys.GOOGLE_ADMIN_TOKEN });
+  };
+
+  const isCurrentStepValid = () => {
+    if (step === 2) {
+      return Boolean(formData.aircallRole && formData.aircallTeam);
+    }
+
+    return true;
   };
 
   const handleNext = async () => {
@@ -1159,9 +1250,21 @@ Line 6: Xero Tenant ID (optional)`}
       <Input label="First Name" value={formData.firstName} disabled={true} onChange={()=>{}} />
       <Input label="Last Name" value={formData.lastName} disabled={true} onChange={()=>{}} />
       <Input label="Email (Synced)" value={formData.googleEmail} disabled={true} onChange={()=>{}} />
-      <Select label="Role" value={formData.aircallRole} onChange={(v) => updateData('aircallRole', v)} options={[{ value: 'agent', label: 'Agent' }, { value: 'supervisor', label: 'Supervisor' }, { value: 'admin', label: 'Admin' }]} />
-      {formData.aircallRole === 'supervisor' && (
-        <Select label="Assign Specific Team" value={formData.aircallTeam} onChange={(v) => updateData('aircallTeam', v)} options={AIRCALL_TEAMS.map(t => ({ value: t.id, label: t.name }))} />
+      <Select
+        label="Role"
+        value={formData.aircallRole}
+        onChange={(v) => updateData('aircallRole', v)}
+        options={aircallRoles.map((role) => ({ value: role.id, label: role.name }))}
+      />
+      <Select
+        label="Assign Specific Team"
+        value={formData.aircallTeam}
+        onChange={(v) => updateData('aircallTeam', v)}
+        options={aircallTeams.map((team) => ({ value: team.id, label: team.name }))}
+      />
+      <p className="ph-auth-help">{aircallCatalogStatus}</p>
+      {aircallTeams.length === 0 && (
+        <p className="ph-auth-error">No Aircall teams were returned. Create a team in Aircall, then authenticate again.</p>
       )}
     </div>
   );
@@ -1509,7 +1612,7 @@ Line 6: Xero Tenant ID (optional)`}
                 <button onClick={handleBack} disabled={step === 0 || isLoading} className="ph-btn ph-btn-ghost">
                   <Icons.ChevronLeft size={16} /> <span>Back</span>
                 </button>
-                <button onClick={handleNext} disabled={isLoading} className="ph-btn ph-btn-primary">
+                <button onClick={handleNext} disabled={isLoading || !isCurrentStepValid()} className="ph-btn ph-btn-primary">
                   <span>{step === 0 ? 'Authenticate & Begin' : step === STEPS.length - 2 ? 'Finalize Onboarding' : 'Next Step'}</span> <Icons.ChevronRight size={16} />
                 </button>
               </div>
