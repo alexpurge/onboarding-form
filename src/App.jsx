@@ -20,12 +20,12 @@ const customStyles = `
 
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
   
-  .ph-wrapper { min-height: 100dvh; width: 100%; background-color: var(--bg-dark); color: var(--text-main); display: flex; align-items: center; justify-content: center; padding: clamp(1rem, 3vw, 2rem); position: relative; overflow: hidden; }
+  .ph-wrapper { min-height: 100dvh; width: 100%; background-color: var(--bg-dark); color: var(--text-main); display: flex; align-items: flex-start; justify-content: center; padding: clamp(1rem, 3vw, 2rem); position: relative; overflow-x: hidden; }
   .ph-glow { position: fixed; top: 0; left: 25%; width: 24rem; height: 24rem; background-color: var(--primary); border-radius: 50%; mix-blend-mode: screen; filter: blur(150px); opacity: 0.1; pointer-events: none; }
   
-  .ph-main-container { width: min(100%, 64rem); min-height: auto; max-height: calc(100dvh - (clamp(1rem, 3vw, 2rem) * 2)); position: relative; z-index: 10; display: flex; flex-direction: column; }
-  
-  .ph-header-area { margin-bottom: 2rem; display: flex; flex-direction: column; align-items: center; }
+  .ph-main-container { width: min(100%, 64rem); min-height: auto; position: relative; z-index: 10; display: flex; flex-direction: column; }
+
+  .ph-header-area { padding: 2rem 2rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; }
   .ph-logo-wrap { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
   .ph-logo-box { width: 2.5rem; height: 2.5rem; background-color: #111111; border-radius: 0.5rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(255,93,0,0.3); overflow: hidden; }
   .ph-logo-image { width: 100%; height: 100%; object-fit: cover; }
@@ -498,11 +498,6 @@ export default function App() {
   // ==========================================
   const renderLogin = () => (
     <div className="animate-fade-in">
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem' }}>
-        <div className="ph-logo-box" style={{ width: '4rem', height: '4rem', borderRadius: '1rem' }}>
-          <Icons.KeyRound size={32} color="white" />
-        </div>
-      </div>
       <h2 style={{ textAlign: 'center', fontSize: '1.5rem', marginBottom: '0.5rem' }}>System Authentication</h2>
       <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '2rem' }}>Provide environment keys to grant full Read/Write API access.</p>
       
@@ -810,33 +805,6 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
       <div className="ph-wrapper">
         <div className="ph-glow"></div>
         <div className="ph-main-container">
-          
-          <div className="ph-header-area">
-            <div className="ph-logo-wrap">
-              <div className="ph-logo-box">
-                <img src={PURGEHUB_LOGO_URL} alt="PurgeHub logo" className="ph-logo-image" />
-              </div>
-              <h1 className="ph-logo-text">Purge Hub</h1>
-            </div>
-            
-            {step > 0 && step < STEPS.length - 1 && (
-              <div className="ph-progress-bar">
-                <div className="ph-progress-line-bg"></div>
-                <div className="ph-progress-line-fill" style={{ width: `${(step / (STEPS.length - 2)) * 100}%` }}></div>
-                {STEPS.slice(1, -1).map((s, idx) => {
-                  const stepNum = idx + 1;
-                  const isActive = step === stepNum;
-                  const isPassed = step > stepNum;
-                  return (
-                    <div key={idx} className={`ph-progress-dot ${isActive ? 'active' : ''} ${isPassed ? 'passed' : ''}`}>
-                      {isPassed ? <Icons.Check size={12} strokeWidth={3} /> : stepNum}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
           <div className="ph-card">
             {isLoading && (
               <div className="ph-loader-overlay">
@@ -844,6 +812,32 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
                 <p className="ph-loader-text">{loadingText}</p>
               </div>
             )}
+
+            <div className="ph-header-area">
+              <div className="ph-logo-wrap">
+                <div className="ph-logo-box">
+                  <img src={PURGEHUB_LOGO_URL} alt="PurgeHub logo" className="ph-logo-image" />
+                </div>
+                <h1 className="ph-logo-text">Purge Hub</h1>
+              </div>
+
+              {step > 0 && step < STEPS.length - 1 && (
+                <div className="ph-progress-bar">
+                  <div className="ph-progress-line-bg"></div>
+                  <div className="ph-progress-line-fill" style={{ width: `${(step / (STEPS.length - 2)) * 100}%` }}></div>
+                  {STEPS.slice(1, -1).map((s, idx) => {
+                    const stepNum = idx + 1;
+                    const isActive = step === stepNum;
+                    const isPassed = step > stepNum;
+                    return (
+                      <div key={idx} className={`ph-progress-dot ${isActive ? 'active' : ''} ${isPassed ? 'passed' : ''}`}>
+                        {isPassed ? <Icons.Check size={12} strokeWidth={3} /> : stepNum}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             <div className="ph-card-content">
               {STEPS[step].content()}
