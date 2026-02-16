@@ -288,6 +288,11 @@ const buildNormalizedRecoveryInfo = ({ recoveryEmail, recoveryPhone }) => ({
   recoveryPhone: normalizeRecoveryPhone(recoveryPhone)
 });
 
+const isGoogleUserPendingCreation = (status, responseText = '') => {
+  if (status !== 412) return false;
+  return /user creation is not complete/i.test(responseText) || /condition not met/i.test(responseText);
+};
+
 // ==========================================
 // 4. MAIN APPLICATION COMPONENT
 // ==========================================
@@ -423,7 +428,6 @@ export default function App() {
     // 1. Google Workspace Admin API (Directory API)
     createGoogleUser: async (data, keys) => {
       console.log("EXECUTING POST TO GOOGLE ADMIN API...");
-      const { recoveryEmail, recoveryPhone } = buildNormalizedRecoveryInfo(data);
 
       const createBody = {
         primaryEmail: data.googleEmail,
@@ -431,9 +435,6 @@ export default function App() {
         password: data.googlePassword,
         changePasswordAtNextLogin: true
       };
-
-      if (recoveryEmail) createBody.recoveryEmail = recoveryEmail;
-      if (recoveryPhone) createBody.recoveryPhone = recoveryPhone;
 
       const response = await fetch("https://admin.googleapis.com/admin/directory/v1/users", {
         method: "POST",
@@ -465,6 +466,37 @@ export default function App() {
       return result;
     },
 
+    waitForGoogleUserReady: async ({ userKey, fallbackUserKey }, keys) => {
+      const candidateUserKeys = [userKey, fallbackUserKey].filter(Boolean);
+      if (!candidateUserKeys.length) return;
+
+      let lastErrorText = '';
+
+      for (const candidateKey of candidateUserKeys) {
+        for (let attempt = 1; attempt <= 6; attempt += 1) {
+          const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(candidateKey)}?projection=basic`, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`
+            }
+          });
+
+          if (response.ok) return;
+
+          const responseText = await formatErrorForDisplay(response);
+          lastErrorText = responseText;
+          if ((response.status === 404 || isGoogleUserPendingCreation(response.status, responseText)) && attempt < 6) {
+            await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+            continue;
+          }
+
+          break;
+        }
+      }
+
+      throw new Error(lastErrorText || 'Google user record is not ready yet.');
+    },
+
     updateGoogleRecoveryInfo: async ({ userKey, fallbackUserKey, recoveryEmail, recoveryPhone }, keys) => {
       const normalizedRecoveryInfo = buildNormalizedRecoveryInfo({ recoveryEmail, recoveryPhone });
       if ((!userKey && !fallbackUserKey) || (!normalizedRecoveryInfo.recoveryEmail && !normalizedRecoveryInfo.recoveryPhone)) return;
@@ -488,8 +520,9 @@ export default function App() {
           });
 
           if (!patchResponse.ok) {
-            lastErrorText = await formatErrorForDisplay(patchResponse);
-            if (patchResponse.status === 404 && attempt < 4) {
+            const responseText = await formatErrorForDisplay(patchResponse);
+            lastErrorText = responseText;
+            if ((patchResponse.status === 404 || isGoogleUserPendingCreation(patchResponse.status, responseText)) && attempt < 4) {
               await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
               continue;
             }
@@ -504,8 +537,9 @@ export default function App() {
           });
 
           if (!verifyResponse.ok) {
-            lastErrorText = await formatErrorForDisplay(verifyResponse);
-            if (verifyResponse.status === 404 && attempt < 4) {
+            const responseText = await formatErrorForDisplay(verifyResponse);
+            lastErrorText = responseText;
+            if ((verifyResponse.status === 404 || isGoogleUserPendingCreation(verifyResponse.status, responseText)) && attempt < 4) {
               await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
               continue;
             }
@@ -1012,6 +1046,17 @@ export default function App() {
         const userKey = googleResult?.id || googleResult?.primaryEmail || formData.googleEmail;
         setGoogleUserKey(userKey);
         updateProvisionStatus('google-user', 'success', 'Google account created successfully.');
+
+        await executeWithErrorLogging({
+          source: 'Google Admin',
+          action: 'Wait for Google user propagation',
+          stepNumber: 1,
+          meta: { userKey, fallbackUserKey: formData.googleEmail },
+          task: () => api.waitForGoogleUserReady({
+            userKey,
+            fallbackUserKey: formData.googleEmail
+          }, parsedKeys)
+        });
 
         updateProvisionStatus('google-recovery', 'inprogress', `Updating security info (${normalizedRecoveryInfo.recoveryEmail} / ${normalizedRecoveryInfo.recoveryPhone})...`);
         await executeWithErrorLogging({
