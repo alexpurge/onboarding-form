@@ -581,19 +581,24 @@ export default function App() {
     createAircallUser: async (data, keys) => {
       console.log("EXECUTING POST TO AIRCALL API...");
       const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
+      const body = new URLSearchParams();
+      body.set('first_name', data.firstName || '');
+      body.set('last_name', data.lastName || '');
+      body.set('email', data.googleEmail || '');
+      body.set('role', data.aircallRole || 'agent');
+
+      if (data.aircallTeam) {
+        body.append('team_ids[]', data.aircallTeam);
+      }
+
       const response = await fetch("https://api.aircall.io/v1/users", {
         method: "POST",
         headers: {
           "Authorization": `Basic ${authHeader}`,
-          "Content-Type": "application/json"
+          "Accept": "application/json",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
         },
-        body: JSON.stringify({
-          first_name: data.firstName,
-          last_name: data.lastName,
-          email: data.googleEmail,
-          role: data.aircallRole,
-          team_ids: data.aircallTeam ? [Number(data.aircallTeam)] : []
-        })
+        body: body.toString()
       });
 
       if (!response.ok) throw new Error(await formatErrorForDisplay(response));
@@ -602,9 +607,24 @@ export default function App() {
       if (data.photoUrl && result?.user?.id) {
         const userId = result.user.id;
         const auth = `Basic ${authHeader}`;
+        const photoResponse = await fetch(data.photoUrl);
+        if (!photoResponse.ok) throw new Error(`Unable to fetch profile photo: ${await formatErrorForDisplay(photoResponse)}`);
+        const photoBlob = await photoResponse.blob();
         const photoData = await api.fetchPhotoAsBase64(data.photoUrl);
 
+        const multipartBody = new FormData();
+        multipartBody.append('picture', photoBlob, 'profile-photo.jpg');
+
         const attempts = [
+          {
+            label: 'POST /v1/users/:id/picture (multipart)',
+            url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}/picture`,
+            options: {
+              method: "POST",
+              headers: { "Authorization": auth },
+              body: multipartBody
+            }
+          },
           {
             label: 'PUT /v1/users/:id avatar',
             url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}`,
