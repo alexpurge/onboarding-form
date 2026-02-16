@@ -108,6 +108,20 @@ const customStyles = `
   .ph-provision-item-title { font-size: 0.84rem; color: #f4f4f4; }
   .ph-provision-item-note { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem; }
   .ph-provision-error { margin-top: 0.85rem; color: #fca5a5; font-size: 0.78rem; border: 1px solid rgba(239,68,68,0.4); background-color: rgba(239,68,68,0.12); border-radius: 0.5rem; padding: 0.55rem 0.65rem; }
+  .ph-error-log-panel { margin-top: 1rem; border: 1px solid #3a1f1f; border-radius: 0.75rem; background-color: rgba(60, 8, 8, 0.28); overflow: hidden; }
+  .ph-error-log-header { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 0.8rem; border-bottom: 1px solid #4a2626; }
+  .ph-error-log-title { display: inline-flex; gap: 0.45rem; align-items: center; color: #fca5a5; font-weight: 600; font-size: 0.82rem; }
+  .ph-error-log-count { color: #fca5a5; border: 1px solid rgba(248,113,113,0.5); border-radius: 999px; padding: 0.15rem 0.5rem; font-size: 0.72rem; }
+  .ph-error-log-list { max-height: 16rem; overflow-y: auto; }
+  .ph-error-log-empty { padding: 0.8rem; font-size: 0.78rem; color: #fca5a5; }
+  .ph-error-log-item { padding: 0.75rem 0.8rem; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+  .ph-error-log-item:first-child { border-top: none; }
+  .ph-error-log-item-top { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.74rem; }
+  .ph-error-log-item-source { color: #fecaca; font-weight: 600; }
+  .ph-error-log-item-step { color: #fca5a5; }
+  .ph-error-log-item-time { color: #fda4af; white-space: nowrap; }
+  .ph-error-log-message { margin-top: 0.4rem; color: #ffe4e6; font-size: 0.78rem; line-height: 1.4; }
+  .ph-error-log-meta { margin-top: 0.45rem; padding: 0.45rem; background: rgba(15,15,15,0.7); border: 1px solid #3f3f3f; border-radius: 0.4rem; color: #d4d4d4; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.7rem; white-space: pre-wrap; word-break: break-word; }
 
   .ph-node-tree { flex: 1; background-color: #0f0f0f; border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; items-center; position: relative; min-height: 300px; align-items: center; }
   .ph-node { background-color: #1a1a1a; border: 1px solid rgba(255,93,0,0.5); border-radius: 0.75rem; padding: 1rem; width: 100%; max-width: 24rem; position: relative; z-index: 10; box-shadow: 0 0 15px rgba(255,93,0,0.1); }
@@ -245,6 +259,8 @@ export default function App() {
   ]);
   const [provisionStatus, setProvisionStatus] = useState([]);
   const [provisionError, setProvisionError] = useState('');
+  const [globalError, setGlobalError] = useState('');
+  const [errorLogs, setErrorLogs] = useState([]);
   const [copied, setCopied] = useState(false);
   const [countrySearch, setCountrySearch] = useState('Australia');
   const progressSteps = 5;
@@ -277,13 +293,62 @@ export default function App() {
     setAuthError('');
   }, [credentialBundle]);
 
+  const getStepLabel = (stepNumber = step) => {
+    const labels = {
+      0: 'Integration authentication',
+      1: 'Google admin setup',
+      2: 'Aircall user provisioning',
+      3: 'Aircall number setup',
+      4: 'Aircall call flow setup',
+      5: 'Xero payroll setup'
+    };
+
+    return labels[stepNumber] || `Step ${stepNumber}`;
+  };
+
+  const formatErrorForDisplay = async (response) => {
+    let details = '';
+    try {
+      details = await response.text();
+    } catch {
+      details = '';
+    }
+
+    return `${response.status} ${response.statusText}${details ? ` | ${details}` : ''}`.trim();
+  };
+
+  const pushErrorLog = ({ source, action, message, meta = {}, stepNumber = step }) => {
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      source,
+      action,
+      step: getStepLabel(stepNumber),
+      message,
+      meta
+    };
+
+    setErrorLogs((prev) => [entry, ...prev].slice(0, 100));
+    return entry;
+  };
+
+  const executeWithErrorLogging = async ({ source, action, stepNumber = step, meta = {}, task }) => {
+    try {
+      return await task();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushErrorLog({ source, action, message, meta, stepNumber });
+      throw error;
+    }
+  };
+
   // ==========================================
   // 5. DIRECT API INTERACTION LAYER 
   // ==========================================
   const api = {
     fetchPhotoAsBase64: async (photoUrl) => {
       const photoResponse = await fetch(photoUrl);
-      if (!photoResponse.ok) throw new Error(`Unable to fetch profile photo: ${photoResponse.status}`);
+      if (!photoResponse.ok) throw new Error(`Unable to fetch profile photo: ${await formatErrorForDisplay(photoResponse)}`);
 
       const photoBlob = await photoResponse.blob();
       const photoBuffer = await photoBlob.arrayBuffer();
@@ -321,7 +386,7 @@ export default function App() {
         body: JSON.stringify(createBody)
       });
 
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error(await formatErrorForDisplay(response));
       const result = await response.json();
 
       // Attach profile photo in Google Workspace Admin
@@ -336,7 +401,7 @@ export default function App() {
           body: JSON.stringify({ photoData })
         });
 
-        if (!photoUploadResponse.ok) throw new Error(await photoUploadResponse.text());
+        if (!photoUploadResponse.ok) throw new Error(`Google profile photo upload failed: ${await formatErrorForDisplay(photoUploadResponse)}`);
       }
 
       return result;
@@ -364,7 +429,7 @@ export default function App() {
           });
 
           if (!patchResponse.ok) {
-            lastErrorText = await patchResponse.text();
+            lastErrorText = await formatErrorForDisplay(patchResponse);
             if (patchResponse.status === 404 && attempt < 4) {
               await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
               continue;
@@ -380,7 +445,7 @@ export default function App() {
           });
 
           if (!verifyResponse.ok) {
-            lastErrorText = await verifyResponse.text();
+            lastErrorText = await formatErrorForDisplay(verifyResponse);
             if (verifyResponse.status === 404 && attempt < 4) {
               await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
               continue;
@@ -415,7 +480,7 @@ export default function App() {
         })
       });
 
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error(await formatErrorForDisplay(response));
       return response.json();
     },
 
@@ -437,7 +502,7 @@ export default function App() {
         })
       });
 
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error(await formatErrorForDisplay(response));
       const result = await response.json();
 
       if (data.photoUrl && result?.user?.id) {
@@ -485,7 +550,7 @@ export default function App() {
             break;
           }
 
-          const details = await photoResponse.text();
+          const details = await formatErrorForDisplay(photoResponse);
           uploadError = `${attempt.label} => ${photoResponse.status}${details ? `: ${details}` : ''}`;
         }
 
@@ -496,28 +561,23 @@ export default function App() {
     },
 
     createAircallNumber: async (data, keys) => {
-      try {
-        console.log("EXECUTING POST TO AIRCALL NUMBERS API...");
-        const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-        const response = await fetch("https://api.aircall.io/v1/numbers", {
-          method: "POST",
-          headers: {
-            "Authorization": `Basic ${authHeader}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            name: data.acName,
-            country: "AU",
-            type: data.acType.toLowerCase()
-          })
-        });
+      console.log("EXECUTING POST TO AIRCALL NUMBERS API...");
+      const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
+      const response = await fetch("https://api.aircall.io/v1/numbers", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${authHeader}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: data.acName,
+          country: "AU",
+          type: data.acType.toLowerCase()
+        })
+      });
 
-        if (!response.ok) throw new Error(await response.text());
-        return await response.json();
-      } catch (err) {
-        console.error("Aircall Number Error:", err);
-        await new Promise(res => setTimeout(res, 1500));
-      }
+      if (!response.ok) throw new Error(`Aircall number provisioning failed: ${await formatErrorForDisplay(response)}`);
+      return await response.json();
     },
 
     publishAircallFlow: async (data) => {
@@ -529,33 +589,32 @@ export default function App() {
 
     // 3. Xero API (Payroll / Employees)
     createXeroEmployee: async (data, keys) => {
-      try {
-        console.log("EXECUTING POST TO XERO PAYROLL API...");
-        const response = await fetch("https://api.xero.com/payroll.xro/1.0/Employees", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${keys.ZERO_ACCESS_TOKEN}`,
-            "xero-tenant-id": keys.ZERO_TENANT_ID,
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify([{
-            FirstName: data.firstName,
-            LastName: data.lastName,
-            JobTitle: data.xeroJobTitle,
-            SalaryAndWages: [{ 
-              SalaryWagesType: "SALARY",
-              AnnualSalary: parseFloat(data.xeroSalary.replace(/[^0-9.]/g, '') || 0)
-            }]
-          }])
-        });
-
-        if (!response.ok) throw new Error(await response.text());
-        return await response.json();
-      } catch (err) {
-        console.error("Xero API Error:", err);
-        await new Promise(res => setTimeout(res, 1500));
+      console.log("EXECUTING POST TO XERO PAYROLL API...");
+      if (!keys.ZERO_ACCESS_TOKEN || !keys.ZERO_TENANT_ID) {
+        throw new Error('Xero credentials missing. Provide ZERO_ACCESS_TOKEN and ZERO_TENANT_ID in the credential bundle.');
       }
+
+      const response = await fetch("https://api.xero.com/payroll.xro/1.0/Employees", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${keys.ZERO_ACCESS_TOKEN}`,
+          "xero-tenant-id": keys.ZERO_TENANT_ID,
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify([{
+          FirstName: data.firstName,
+          LastName: data.lastName,
+          JobTitle: data.xeroJobTitle,
+          SalaryAndWages: [{ 
+            SalaryWagesType: "SALARY",
+            AnnualSalary: parseFloat(data.xeroSalary.replace(/[^0-9.]/g, '') || 0)
+          }]
+        }])
+      });
+
+      if (!response.ok) throw new Error(`Xero employee provisioning failed: ${await formatErrorForDisplay(response)}`);
+      return await response.json();
     }
   };
 
@@ -602,8 +661,7 @@ export default function App() {
   const parseAuthForm = () => {
     const lines = credentialBundle
       .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
+      .map((line) => line.trim());
 
     return {
       GOOGLE_ADMIN_TOKEN: lines[0] || '',
@@ -612,7 +670,9 @@ export default function App() {
       GOOGLE_OAUTH_CLIENT_SECRET: lines[1] || '',
       GOOGLE_OAUTH_REFRESH_TOKEN: lines[2] || '',
       AIRCALL_API_ID: HARDCODED_AIRCALL_API_ID,
-      AIRCALL_API_TOKEN: lines[3] || ''
+      AIRCALL_API_TOKEN: lines[3] || '',
+      ZERO_ACCESS_TOKEN: lines[4] || '',
+      ZERO_TENANT_ID: lines[5] || ''
     };
   };
 
@@ -637,7 +697,7 @@ export default function App() {
     });
 
     if (!response.ok) {
-      const details = await response.text();
+      const details = await formatErrorForDisplay(response);
       throw new Error(`Google OAuth token refresh failed${details ? `: ${details}` : '.'}`);
     }
 
@@ -657,9 +717,9 @@ export default function App() {
           headers: { Authorization: `Bearer ${token}` }
         });
 
-        if (response.ok) return;
+        if (response.ok) return token;
 
-        const details = await response.text();
+        const details = await formatErrorForDisplay(response);
         lastError = `users.list (${customer}) responded ${response.status}${details ? `: ${details}` : ''}`;
       }
     }
@@ -673,9 +733,9 @@ export default function App() {
           headers: { Authorization: `Bearer ${refreshedAccessToken}` }
         });
 
-        if (response.ok) return;
+        if (response.ok) return refreshedAccessToken;
 
-        const details = await response.text();
+        const details = await formatErrorForDisplay(response);
         lastError = `users.list (${customer}) responded ${response.status}${details ? `: ${details}` : ''}`;
       }
     }
@@ -697,7 +757,7 @@ export default function App() {
       const response = await fetch(check.url, { method: 'GET', headers });
       if (response.ok) return;
 
-      const details = await response.text();
+      const details = await formatErrorForDisplay(response);
       lastError = `${check.label} responded ${response.status}${details ? `: ${details}` : ''}`;
     }
 
@@ -730,28 +790,37 @@ export default function App() {
     ]);
 
     updateAuthStatus('google', 'inprogress', 'Authenticating read/write access...');
-    await validateGoogleAuth(keys);
+    const verifiedGoogleToken = await validateGoogleAuth(keys);
     updateAuthStatus('google', 'success', 'Read/write access verified');
 
     updateAuthStatus('aircall', 'inprogress', 'Authenticating API credentials...');
     await validateAircallAuth(keys);
     updateAuthStatus('aircall', 'success', 'Access verified');
 
-    setParsedKeys(keys);
+    setParsedKeys({ ...keys, GOOGLE_ADMIN_TOKEN: verifiedGoogleToken || keys.GOOGLE_ADMIN_TOKEN });
   };
 
   const handleNext = async () => {
+    setGlobalError('');
+
     if (step === 0) {
       setIsLoading(true);
       setLoadingText('Authenticating integrations...');
       setAuthError('');
       try {
-        await authenticateIntegrations();
+        await executeWithErrorLogging({
+          source: 'Authentication',
+          action: 'Authenticate integration credentials',
+          stepNumber: 0,
+          meta: { hasGoogleToken: !!parsedKeys.GOOGLE_ADMIN_TOKEN },
+          task: authenticateIntegrations
+        });
         setStep((prev) => prev + 1);
       } catch (error) {
         setAuthStatus((prev) => prev.map((entry) => entry.state === 'success' ? entry : { ...entry, state: 'error', note: 'Authentication failed' }));
         const message = error instanceof Error ? error.message : 'Authentication failed. Please review credentials.';
         setAuthError(message);
+        setGlobalError(message);
       } finally {
         setIsLoading(false);
       }
@@ -770,18 +839,32 @@ export default function App() {
         const tempPass = 'PD-' + Math.random().toString(36).slice(-8) + '!';
         setFormData(prev => ({ ...prev, googlePassword: tempPass }));
 
-        const googleResult = await api.createGoogleUser({ ...formData, googlePassword: tempPass }, parsedKeys);
+        const googleResult = await executeWithErrorLogging({
+          source: 'Google Admin',
+          action: 'Create user in admin.google.com',
+          stepNumber: 1,
+          meta: { email: formData.googleEmail },
+          task: () => api.createGoogleUser({ ...formData, googlePassword: tempPass }, parsedKeys)
+        });
+
         const userKey = googleResult?.id || googleResult?.primaryEmail || formData.googleEmail;
         setGoogleUserKey(userKey);
         updateProvisionStatus('google-user', 'success', 'Google account created successfully.');
 
         updateProvisionStatus('google-recovery', 'inprogress', `Updating security info (${formData.recoveryEmail.trim()} / ${formData.recoveryPhone.trim()})...`);
-        await api.updateGoogleRecoveryInfo({
-          userKey,
-          fallbackUserKey: formData.googleEmail,
-          recoveryEmail: formData.recoveryEmail.trim(),
-          recoveryPhone: formData.recoveryPhone.trim()
-        }, parsedKeys);
+        await executeWithErrorLogging({
+          source: 'Google Admin',
+          action: 'Write Google recovery fields',
+          stepNumber: 1,
+          meta: { userKey, recoveryEmail: formData.recoveryEmail.trim(), recoveryPhone: formData.recoveryPhone.trim() },
+          task: () => api.updateGoogleRecoveryInfo({
+            userKey,
+            fallbackUserKey: formData.googleEmail,
+            recoveryEmail: formData.recoveryEmail.trim(),
+            recoveryPhone: formData.recoveryPhone.trim()
+          }, parsedKeys)
+        });
+
         updateProvisionStatus('google-recovery', 'success', 'Recovery security info saved and verified.');
 
         await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -792,6 +875,7 @@ export default function App() {
         )));
         const message = error instanceof Error ? error.message : 'Google provisioning failed.';
         setProvisionError(message);
+        setGlobalError(message);
       } finally {
         setIsLoading(false);
       }
@@ -803,25 +887,52 @@ export default function App() {
 
       if (step === 2) {
         setLoadingText('Provisioning Aircall Agent...');
-        await api.createAircallUser(formData, parsedKeys);
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Create Aircall user',
+          stepNumber: 2,
+          meta: { email: formData.googleEmail, role: formData.aircallRole },
+          task: () => api.createAircallUser(formData, parsedKeys)
+        });
       }
 
       if (step === 3) {
         setLoadingText('Securing Australian Mobile Number...');
-        await api.createAircallNumber(formData, parsedKeys);
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Create Aircall number',
+          stepNumber: 3,
+          meta: { country: formData.acCountry, type: formData.acType, name: formData.acName },
+          task: () => api.createAircallNumber(formData, parsedKeys)
+        });
       }
 
       if (step === 4) {
         setLoadingText('Publishing Smart Call Flow...');
-        await api.publishAircallFlow(formData, parsedKeys);
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Publish Aircall flow',
+          stepNumber: 4,
+          meta: { nodeCount: formData.flowNodes.length },
+          task: () => api.publishAircallFlow(formData, parsedKeys)
+        });
       }
 
       if (step === 5) {
         setLoadingText('Registering in Xero Payroll...');
-        await api.createXeroEmployee(formData, parsedKeys);
+        await executeWithErrorLogging({
+          source: 'Xero',
+          action: 'Create payroll employee',
+          stepNumber: 5,
+          meta: { jobTitle: formData.xeroJobTitle },
+          task: () => api.createXeroEmployee(formData, parsedKeys)
+        });
       }
 
       setStep(prev => prev + 1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Step failed unexpectedly.';
+      setGlobalError(message);
     } finally {
       setIsLoading(false);
     }
@@ -846,16 +957,56 @@ export default function App() {
       setLoadingText('Resetting Google Workspace password...');
       setPasswordResetStatus('');
       const tempPass = 'PD-' + Math.random().toString(36).slice(-8) + '!';
-      await api.resetGooglePassword({ userKey: googleUserKey, password: tempPass }, parsedKeys);
+      await executeWithErrorLogging({
+        source: 'Google Admin',
+        action: 'Reset Google user password',
+        stepNumber: 6,
+        meta: { userKey: googleUserKey },
+        task: () => api.resetGooglePassword({ userKey: googleUserKey, password: tempPass }, parsedKeys)
+      });
       setFormData((prev) => ({ ...prev, googlePassword: tempPass }));
       setPasswordResetStatus('Password reset complete. New temporary password generated.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to reset password.';
       setPasswordResetStatus(message);
+      setGlobalError(message);
     } finally {
       setIsLoading(false);
     }
   };
+
+  const renderErrorPanel = () => (
+    <div className="ph-error-log-panel">
+      <div className="ph-error-log-header">
+        <div className="ph-error-log-title">
+          <Icons.AlertCircle size={14} />
+          <span>Runtime Error Logs</span>
+        </div>
+        <span className="ph-error-log-count">{errorLogs.length}</span>
+      </div>
+      <div className="ph-error-log-list">
+        {errorLogs.length === 0 ? (
+          <div className="ph-error-log-empty">No errors recorded yet.</div>
+        ) : (
+          errorLogs.map((entry) => (
+            <div key={entry.id} className="ph-error-log-item">
+              <div className="ph-error-log-item-top">
+                <div>
+                  <span className="ph-error-log-item-source">{entry.source}</span>
+                  <span className="ph-error-log-item-step"> · {entry.step}</span>
+                </div>
+                <span className="ph-error-log-item-time">{new Date(entry.timestamp).toLocaleString()}</span>
+              </div>
+              <div className="ph-error-log-message"><strong>{entry.action}</strong>: {entry.message}</div>
+              {entry.meta && Object.keys(entry.meta).length > 0 && (
+                <pre className="ph-error-log-meta">{JSON.stringify(entry.meta, null, 2)}</pre>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 
   // ==========================================
   // STEP RENDERERS
@@ -876,7 +1027,9 @@ export default function App() {
             placeholder={`Line 1: Google Admin Access Token
 Line 2: Google OAuth Client Secret
 Line 3: Google OAuth Refresh Token
-Line 4: Aircall API Token`}
+Line 4: Aircall API Token
+Line 5: Xero Access Token (optional)
+Line 6: Xero Tenant ID (optional)`}
             rows={8}
           />
         </div>
@@ -1276,6 +1429,8 @@ Line 4: Aircall API Token`}
 
             <div className="ph-card-content">
               {STEPS[step].content()}
+              {globalError && <p className="ph-provision-error">{globalError}</p>}
+              {renderErrorPanel()}
             </div>
 
             {step < STEPS.length - 1 && (
