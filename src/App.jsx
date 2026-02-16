@@ -218,9 +218,9 @@ const Checkbox = ({ label, checked, onChange }) => (
 export default function App() {
   const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/QjjDjuU.png';
   const PURGEHUB_LOGO_URL = 'https://i.imgur.com/QjjDjuU.png';
-  const HARDCODED_GOOGLE_CUSTOMER_ID = 'REPLACE_WITH_GOOGLE_CUSTOMER_ID';
-  const HARDCODED_GOOGLE_OAUTH_CLIENT_ID = 'REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID';
-  const HARDCODED_AIRCALL_API_ID = 'REPLACE_WITH_AIRCALL_API_ID';
+  const HARDCODED_GOOGLE_CUSTOMER_ID = 'C038susp4';
+  const HARDCODED_GOOGLE_OAUTH_CLIENT_ID = 'v45672278509-7to6940dlojlb3i6rcj7dust2fs5re5h.apps.googleusercontent.com';
+  const HARDCODED_AIRCALL_API_ID = '5340c75d84bdc8b4f77ab39755392772';
 
   const [step, setStep] = useState(0);
   const [flowView, setFlowView] = useState('import');
