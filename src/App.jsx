@@ -100,6 +100,14 @@ const customStyles = `
   .ph-auth-badge.inprogress { border-top-color: var(--primary); animation: spin 0.85s linear infinite; }
   .ph-auth-badge.success { border-color: var(--success); background-color: rgba(34,197,94,0.2); color: var(--success); }
   .ph-auth-badge.error { border-color: #ef4444; background-color: rgba(239,68,68,0.2); color: #ef4444; }
+  .ph-provision-overlay-card { width: min(92%, 34rem); background: linear-gradient(180deg, #141414, #0f0f0f); border: 1px solid var(--border-light); border-radius: 1rem; padding: 1.25rem; box-shadow: 0 20px 45px rgba(0,0,0,0.45); }
+  .ph-provision-title { font-size: 1rem; font-weight: 700; margin-bottom: 0.35rem; }
+  .ph-provision-subtitle { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 1rem; }
+  .ph-provision-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .ph-provision-item { display: flex; align-items: center; justify-content: space-between; border: 1px solid #2d2d2d; border-radius: 0.65rem; background-color: #151515; padding: 0.65rem 0.75rem; }
+  .ph-provision-item-title { font-size: 0.84rem; color: #f4f4f4; }
+  .ph-provision-item-note { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem; }
+  .ph-provision-error { margin-top: 0.85rem; color: #fca5a5; font-size: 0.78rem; border: 1px solid rgba(239,68,68,0.4); background-color: rgba(239,68,68,0.12); border-radius: 0.5rem; padding: 0.55rem 0.65rem; }
 
   .ph-node-tree { flex: 1; background-color: #0f0f0f; border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; items-center; position: relative; min-height: 300px; align-items: center; }
   .ph-node { background-color: #1a1a1a; border: 1px solid rgba(255,93,0,0.5); border-radius: 0.75rem; padding: 1rem; width: 100%; max-width: 24rem; position: relative; z-index: 10; box-shadow: 0 0 15px rgba(255,93,0,0.1); }
@@ -235,6 +243,8 @@ export default function App() {
     { key: 'google', label: 'admin.google.com', state: 'pending', note: 'Waiting to authenticate' },
     { key: 'aircall', label: 'Aircall', state: 'pending', note: 'Waiting to authenticate' }
   ]);
+  const [provisionStatus, setProvisionStatus] = useState([]);
+  const [provisionError, setProvisionError] = useState('');
   const [copied, setCopied] = useState(false);
   const [countrySearch, setCountrySearch] = useState('Australia');
   const progressSteps = 5;
@@ -339,7 +349,7 @@ export default function App() {
       if (recoveryEmail) body.recoveryEmail = recoveryEmail;
       if (recoveryPhone) body.recoveryPhone = recoveryPhone;
 
-      const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(userKey)}`, {
+      const patchResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(userKey)}`, {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
@@ -348,7 +358,24 @@ export default function App() {
         body: JSON.stringify(body)
       });
 
-      if (!response.ok) throw new Error(await response.text());
+      if (!patchResponse.ok) throw new Error(await patchResponse.text());
+
+      const verifyResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(userKey)}?projection=full`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`
+        }
+      });
+
+      if (!verifyResponse.ok) throw new Error(await verifyResponse.text());
+
+      const updatedUser = await verifyResponse.json();
+      const emailSaved = !recoveryEmail || updatedUser?.recoveryEmail === recoveryEmail;
+      const phoneSaved = !recoveryPhone || updatedUser?.recoveryPhone === recoveryPhone;
+
+      if (!emailSaved || !phoneSaved) {
+        throw new Error('Google recovery information did not persist. Ensure API scopes allow writing user recovery fields.');
+      }
     },
 
     resetGooglePassword: async ({ userKey, password }, keys) => {
@@ -370,76 +397,78 @@ export default function App() {
 
     // 2. Aircall API (Users, Numbers)
     createAircallUser: async (data, keys) => {
-      try {
-        console.log("EXECUTING POST TO AIRCALL API...");
-        const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-        const response = await fetch("https://api.aircall.io/v1/users", {
-          method: "POST",
-          headers: {
-            "Authorization": `Basic ${authHeader}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            first_name: data.firstName,
-            last_name: data.lastName,
-            email: data.googleEmail,
-            role: data.aircallRole
-          })
-        });
+      console.log("EXECUTING POST TO AIRCALL API...");
+      const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
+      const response = await fetch("https://api.aircall.io/v1/users", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${authHeader}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          first_name: data.firstName,
+          last_name: data.lastName,
+          email: data.googleEmail,
+          role: data.aircallRole
+        })
+      });
 
-        if (!response.ok) throw new Error(await response.text());
-        const result = await response.json();
+      if (!response.ok) throw new Error(await response.text());
+      const result = await response.json();
 
-        // Attach profile photo in Aircall (supports different account/API versions)
-        if (data.photoUrl && result?.user?.id) {
-          const userId = result.user.id;
-          const auth = `Basic ${authHeader}`;
-          const photoData = await api.fetchPhotoAsBase64(data.photoUrl);
+      if (data.photoUrl && result?.user?.id) {
+        const userId = result.user.id;
+        const auth = `Basic ${authHeader}`;
+        const photoData = await api.fetchPhotoAsBase64(data.photoUrl);
 
-          const attempts = [
-            {
-              url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}`,
-              options: {
-                method: "PUT",
-                headers: { "Authorization": auth, "Content-Type": "application/json" },
-                body: JSON.stringify({ avatar: photoData })
-              }
-            },
-            {
-              url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}`,
-              options: {
-                method: "PUT",
-                headers: { "Authorization": auth, "Content-Type": "application/json" },
-                body: JSON.stringify({ picture: photoData })
-              }
-            },
-            {
-              url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}/picture`,
-              options: {
-                method: "POST",
-                headers: { "Authorization": auth, "Content-Type": "application/json" },
-                body: JSON.stringify({ picture: photoData })
-              }
+        const attempts = [
+          {
+            label: 'PUT /v1/users/:id avatar',
+            url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}`,
+            options: {
+              method: "PUT",
+              headers: { "Authorization": auth, "Content-Type": "application/json" },
+              body: JSON.stringify({ user: { avatar: photoData } })
             }
-          ];
-
-          let uploaded = false;
-          for (const attempt of attempts) {
-            const photoResponse = await fetch(attempt.url, attempt.options);
-            if (photoResponse.ok) {
-              uploaded = true;
-              break;
+          },
+          {
+            label: 'PUT /v1/users/:id picture',
+            url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}`,
+            options: {
+              method: "PUT",
+              headers: { "Authorization": auth, "Content-Type": "application/json" },
+              body: JSON.stringify({ user: { picture: photoData } })
+            }
+          },
+          {
+            label: 'POST /v1/users/:id/picture',
+            url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}/picture`,
+            options: {
+              method: "POST",
+              headers: { "Authorization": auth, "Content-Type": "application/json" },
+              body: JSON.stringify({ picture: photoData })
             }
           }
+        ];
 
-          if (!uploaded) throw new Error("Unable to upload Aircall profile photo with available API shapes.");
+        let uploaded = false;
+        let uploadError = '';
+
+        for (const attempt of attempts) {
+          const photoResponse = await fetch(attempt.url, attempt.options);
+          if (photoResponse.ok) {
+            uploaded = true;
+            break;
+          }
+
+          const details = await photoResponse.text();
+          uploadError = `${attempt.label} => ${photoResponse.status}${details ? `: ${details}` : ''}`;
         }
 
-        return result;
-      } catch (err) {
-        console.error("Aircall API Error:", err);
-        await new Promise(res => setTimeout(res, 1200));
+        if (!uploaded) throw new Error(`Unable to upload Aircall profile photo. ${uploadError}`);
       }
+
+      return result;
     },
 
     createAircallNumber: async (data, keys) => {
@@ -601,6 +630,18 @@ export default function App() {
     throw new Error(`Aircall authentication failed. Confirm the Aircall API token is valid. ${lastError}`);
   };
 
+
+  const startProvision = (items) => {
+    setProvisionError('');
+    setProvisionStatus(items.map((item) => ({ ...item, state: 'pending', note: item.note || 'Queued' })));
+  };
+
+  const updateProvisionStatus = (key, state, note) => {
+    setProvisionStatus((prev) => prev.map((entry) => (
+      entry.key === key ? { ...entry, state, note } : entry
+    )));
+  };
+
   const authenticateIntegrations = async () => {
     const keys = parseAuthForm();
     const missing = requiredAuthFields.filter((field) => !keys[field]);
@@ -644,45 +685,70 @@ export default function App() {
     }
 
     if (step === 1) {
-      setIsLoading(true); setLoadingText("Provisioning Google Workspace...");
-      const tempPass = 'PD-' + Math.random().toString(36).slice(-8) + '!';
-      setFormData(prev => ({ ...prev, googlePassword: tempPass }));
-      const googleResult = await api.createGoogleUser({ ...formData, googlePassword: tempPass }, parsedKeys);
-      const userKey = googleResult?.id || googleResult?.primaryEmail || formData.googleEmail;
-      setGoogleUserKey(userKey);
-      await api.updateGoogleRecoveryInfo({
-        userKey,
-        recoveryEmail: formData.recoveryEmail.trim(),
-        recoveryPhone: formData.recoveryPhone.trim()
-      }, parsedKeys);
-      setIsLoading(false);
-    }
-    
-    if (step === 2) {
-      setIsLoading(true); setLoadingText("Provisioning Aircall Agent...");
-      await api.createAircallUser(formData, parsedKeys);
-      setIsLoading(false);
+      setIsLoading(true);
+      startProvision([
+        { key: 'google-user', label: 'Create Google user', note: 'Preparing account creation request...' },
+        { key: 'google-recovery', label: 'Write recovery security info', note: 'Waiting for user to be created...' }
+      ]);
+
+      try {
+        updateProvisionStatus('google-user', 'inprogress', 'Creating user in admin.google.com...');
+        const tempPass = 'PD-' + Math.random().toString(36).slice(-8) + '!';
+        setFormData(prev => ({ ...prev, googlePassword: tempPass }));
+
+        const googleResult = await api.createGoogleUser({ ...formData, googlePassword: tempPass }, parsedKeys);
+        const userKey = googleResult?.id || googleResult?.primaryEmail || formData.googleEmail;
+        setGoogleUserKey(userKey);
+        updateProvisionStatus('google-user', 'success', 'Google account created successfully.');
+
+        updateProvisionStatus('google-recovery', 'inprogress', 'Updating recovery email + phone...');
+        await api.updateGoogleRecoveryInfo({
+          userKey,
+          recoveryEmail: formData.recoveryEmail.trim(),
+          recoveryPhone: formData.recoveryPhone.trim()
+        }, parsedKeys);
+        updateProvisionStatus('google-recovery', 'success', 'Recovery security info saved and verified.');
+
+        setStep(prev => prev + 1);
+      } catch (error) {
+        setProvisionStatus((prev) => prev.map((entry) => (
+          entry.state === 'success' ? entry : { ...entry, state: 'error', note: 'Failed. Check credentials and API scopes.' }
+        )));
+        const message = error instanceof Error ? error.message : 'Google provisioning failed.';
+        setProvisionError(message);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
     }
 
-    if (step === 3) {
-      setIsLoading(true); setLoadingText("Securing Australian Mobile Number...");
-      await api.createAircallNumber(formData, parsedKeys);
+    try {
+      setIsLoading(true);
+
+      if (step === 2) {
+        setLoadingText('Provisioning Aircall Agent...');
+        await api.createAircallUser(formData, parsedKeys);
+      }
+
+      if (step === 3) {
+        setLoadingText('Securing Australian Mobile Number...');
+        await api.createAircallNumber(formData, parsedKeys);
+      }
+
+      if (step === 4) {
+        setLoadingText('Publishing Smart Call Flow...');
+        await api.publishAircallFlow(formData, parsedKeys);
+      }
+
+      if (step === 5) {
+        setLoadingText('Registering in Xero Payroll...');
+        await api.createXeroEmployee(formData, parsedKeys);
+      }
+
+      setStep(prev => prev + 1);
+    } finally {
       setIsLoading(false);
     }
-
-    if (step === 4) {
-      setIsLoading(true); setLoadingText("Publishing Smart Call Flow...");
-      await api.publishAircallFlow(formData, parsedKeys);
-      setIsLoading(false);
-    }
-
-    if (step === 5) {
-      setIsLoading(true); setLoadingText("Registering in Xero Payroll...");
-      await api.createXeroEmployee(formData, parsedKeys);
-      setIsLoading(false);
-    }
-
-    setStep(prev => prev + 1);
   };
 
   const handleBack = () => setStep(prev => Math.max(0, prev - 1));
@@ -1075,6 +1141,27 @@ Line 4: Aircall API Token`}
                         </div>
                       ))}
                     </div>
+                  </div>
+                ) : step === 1 ? (
+                  <div className="ph-provision-overlay-card">
+                    <h3 className="ph-provision-title">Provisioning admin.google.com</h3>
+                    <p className="ph-provision-subtitle">We only move forward when every task is complete.</p>
+                    <div className="ph-provision-list">
+                      {provisionStatus.map((status) => (
+                        <div key={status.key} className="ph-provision-item">
+                          <div>
+                            <div className="ph-provision-item-title">{status.label}</div>
+                            <div className="ph-provision-item-note">{status.note}</div>
+                          </div>
+                          <div className={`ph-auth-badge ${status.state}`}>
+                            {status.state === 'success' && <Icons.Check size={12} strokeWidth={3} />}
+                            {status.state === 'error' && <Icons.AlertCircle size={12} />}
+                            {(status.state === 'pending' || status.state === 'inprogress') && <Icons.LoaderCircle size={12} />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {provisionError && <p className="ph-provision-error">{provisionError}</p>}
                   </div>
                 ) : (
                   <>
