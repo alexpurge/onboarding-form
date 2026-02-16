@@ -217,6 +217,23 @@ export default function App() {
   // 5. DIRECT API INTERACTION LAYER 
   // ==========================================
   const api = {
+    fetchPhotoAsBase64: async (photoUrl) => {
+      const photoResponse = await fetch(photoUrl);
+      if (!photoResponse.ok) throw new Error(`Unable to fetch profile photo: ${photoResponse.status}`);
+
+      const photoBlob = await photoResponse.blob();
+      const photoBuffer = await photoBlob.arrayBuffer();
+      const bytes = new Uint8Array(photoBuffer);
+      const chunkSize = 0x8000;
+      let binary = '';
+
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+
+      return btoa(binary);
+    },
+
     parseKeys: (text) => {
       const lines = text.split('\n');
       const keys = {};
@@ -248,9 +265,19 @@ export default function App() {
         if (!response.ok) throw new Error(await response.text());
         const result = await response.json();
         
-        // Photo upload logic if needed
-        if (data.photoUrl) {
-           console.log("Mocking Photo Upload PUT request...");
+        // Attach profile photo in Google Workspace Admin
+        if (data.photoUrl && result?.id) {
+          const photoData = await api.fetchPhotoAsBase64(data.photoUrl);
+          const photoUploadResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(result.id)}/photos/thumbnail`, {
+            method: "PUT",
+            headers: {
+              "Authorization": `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ photoData })
+          });
+
+          if (!photoUploadResponse.ok) throw new Error(await photoUploadResponse.text());
         }
         return result;
       } catch (err) {
@@ -280,7 +307,54 @@ export default function App() {
         });
 
         if (!response.ok) throw new Error(await response.text());
-        return await response.json();
+        const result = await response.json();
+
+        // Attach profile photo in Aircall (supports different account/API versions)
+        if (data.photoUrl && result?.user?.id) {
+          const userId = result.user.id;
+          const auth = `Basic ${authHeader}`;
+          const photoData = await api.fetchPhotoAsBase64(data.photoUrl);
+
+          const attempts = [
+            {
+              url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}`,
+              options: {
+                method: "PUT",
+                headers: { "Authorization": auth, "Content-Type": "application/json" },
+                body: JSON.stringify({ avatar: photoData })
+              }
+            },
+            {
+              url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}`,
+              options: {
+                method: "PUT",
+                headers: { "Authorization": auth, "Content-Type": "application/json" },
+                body: JSON.stringify({ picture: photoData })
+              }
+            },
+            {
+              url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}/picture`,
+              options: {
+                method: "POST",
+                headers: { "Authorization": auth, "Content-Type": "application/json" },
+                body: JSON.stringify({ picture: photoData })
+              }
+            }
+          ];
+
+          let uploaded = false;
+          for (const attempt of attempts) {
+            const photoResponse = await fetch(attempt.url, attempt.options);
+            if (photoResponse.ok) {
+              uploaded = true;
+              break;
+            }
+          }
+
+          if (!uploaded) throw new Error("Unable to upload Aircall profile photo with available API shapes.");
+        }
+
+        return result;
       } catch (err) {
         console.error("Aircall API Error:", err);
         await new Promise(res => setTimeout(res, 1200));
