@@ -300,46 +300,46 @@ export default function App() {
 
     // 1. Google Workspace Admin API (Directory API)
     createGoogleUser: async (data, keys) => {
-      try {
-        console.log("EXECUTING POST TO GOOGLE ADMIN API...");
-        const response = await fetch("https://admin.googleapis.com/admin/directory/v1/users", {
-          method: "POST",
+      console.log("EXECUTING POST TO GOOGLE ADMIN API...");
+
+      const createBody = {
+        primaryEmail: data.googleEmail,
+        name: { givenName: data.firstName, familyName: data.lastName },
+        password: data.googlePassword,
+        changePasswordAtNextLogin: true
+      };
+
+      if (data.recoveryEmail?.trim()) createBody.recoveryEmail = data.recoveryEmail.trim();
+      if (data.recoveryPhone?.trim()) createBody.recoveryPhone = data.recoveryPhone.trim();
+
+      const response = await fetch("https://admin.googleapis.com/admin/directory/v1/users", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(createBody)
+      });
+
+      if (!response.ok) throw new Error(await response.text());
+      const result = await response.json();
+
+      // Attach profile photo in Google Workspace Admin
+      if (data.photoUrl && result?.id) {
+        const photoData = await api.fetchPhotoAsBase64(data.photoUrl);
+        const photoUploadResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(result.id)}/photos/thumbnail`, {
+          method: "PUT",
           headers: {
             "Authorization": `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            primaryEmail: data.googleEmail,
-            name: { givenName: data.firstName, familyName: data.lastName },
-            password: data.googlePassword,
-            changePasswordAtNextLogin: true
-          })
+          body: JSON.stringify({ photoData })
         });
 
-        if (!response.ok) throw new Error(await response.text());
-        const result = await response.json();
-        
-        // Attach profile photo in Google Workspace Admin
-        if (data.photoUrl && result?.id) {
-          const photoData = await api.fetchPhotoAsBase64(data.photoUrl);
-          const photoUploadResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(result.id)}/photos/thumbnail`, {
-            method: "PUT",
-            headers: {
-              "Authorization": `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ photoData })
-          });
-
-          if (!photoUploadResponse.ok) throw new Error(await photoUploadResponse.text());
-        }
-        return result;
-      } catch (err) {
-        console.error("Google API Error:", err);
-        // Fallback simulate to allow flow to continue if credentials are fake during dev
-        await new Promise(res => setTimeout(res, 1500));
-        return { id: data.googleEmail, primaryEmail: data.googleEmail };
+        if (!photoUploadResponse.ok) throw new Error(await photoUploadResponse.text());
       }
+
+      return result;
     },
 
     updateGoogleRecoveryInfo: async ({ userKey, recoveryEmail, recoveryPhone }, keys) => {
@@ -759,6 +759,7 @@ export default function App() {
         }, parsedKeys);
         updateProvisionStatus('google-recovery', 'success', 'Recovery security info saved and verified.');
 
+        await new Promise((resolve) => setTimeout(resolve, 1200));
         setStep(prev => prev + 1);
       } catch (error) {
         setProvisionStatus((prev) => prev.map((entry) => (
