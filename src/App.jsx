@@ -234,6 +234,60 @@ const Checkbox = ({ label, checked, onChange }) => (
   </label>
 );
 
+const normalizeRecoveryEmail = (email) => {
+  const normalized = (email || '').trim().toLowerCase();
+  if (!normalized) return '';
+
+  const validEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!validEmailPattern.test(normalized)) {
+    throw new Error('Recovery email is invalid. Please provide a valid email address.');
+  }
+
+  return normalized;
+};
+
+const normalizeRecoveryPhone = (phone, defaultCountryCode = '+61') => {
+  const rawValue = (phone || '').trim();
+  if (!rawValue) return '';
+
+  const withoutExtension = rawValue.replace(/(?:ext\.?|extension|x)\s*\d+$/i, '').trim();
+  const sanitized = withoutExtension.replace(/[\s().-]/g, '');
+
+  let normalized = sanitized;
+
+  if (normalized.startsWith('00')) {
+    normalized = `+${normalized.slice(2)}`;
+  }
+
+  if (normalized.startsWith('+')) {
+    normalized = `+${normalized.slice(1).replace(/\D/g, '')}`;
+  } else {
+    const digitsOnly = normalized.replace(/\D/g, '');
+    if (!digitsOnly) {
+      throw new Error('Recovery phone is invalid. Enter digits with an optional leading + and country code.');
+    }
+
+    if (digitsOnly.startsWith('0')) {
+      const defaultDigits = defaultCountryCode.replace(/\D/g, '');
+      normalized = `+${defaultDigits}${digitsOnly.replace(/^0+/, '')}`;
+    } else {
+      normalized = `+${digitsOnly}`;
+    }
+  }
+
+  const e164Pattern = /^\+[1-9]\d{7,14}$/;
+  if (!e164Pattern.test(normalized)) {
+    throw new Error('Recovery phone is invalid. Use E.164 format like +61400000000.');
+  }
+
+  return normalized;
+};
+
+const buildNormalizedRecoveryInfo = ({ recoveryEmail, recoveryPhone }) => ({
+  recoveryEmail: normalizeRecoveryEmail(recoveryEmail),
+  recoveryPhone: normalizeRecoveryPhone(recoveryPhone)
+});
+
 // ==========================================
 // 4. MAIN APPLICATION COMPONENT
 // ==========================================
@@ -366,6 +420,7 @@ export default function App() {
     // 1. Google Workspace Admin API (Directory API)
     createGoogleUser: async (data, keys) => {
       console.log("EXECUTING POST TO GOOGLE ADMIN API...");
+      const { recoveryEmail, recoveryPhone } = buildNormalizedRecoveryInfo(data);
 
       const createBody = {
         primaryEmail: data.googleEmail,
@@ -374,8 +429,8 @@ export default function App() {
         changePasswordAtNextLogin: true
       };
 
-      if (data.recoveryEmail?.trim()) createBody.recoveryEmail = data.recoveryEmail.trim();
-      if (data.recoveryPhone?.trim()) createBody.recoveryPhone = data.recoveryPhone.trim();
+      if (recoveryEmail) createBody.recoveryEmail = recoveryEmail;
+      if (recoveryPhone) createBody.recoveryPhone = recoveryPhone;
 
       const response = await fetch("https://admin.googleapis.com/admin/directory/v1/users", {
         method: "POST",
@@ -408,11 +463,12 @@ export default function App() {
     },
 
     updateGoogleRecoveryInfo: async ({ userKey, fallbackUserKey, recoveryEmail, recoveryPhone }, keys) => {
-      if ((!userKey && !fallbackUserKey) || (!recoveryEmail && !recoveryPhone)) return;
+      const normalizedRecoveryInfo = buildNormalizedRecoveryInfo({ recoveryEmail, recoveryPhone });
+      if ((!userKey && !fallbackUserKey) || (!normalizedRecoveryInfo.recoveryEmail && !normalizedRecoveryInfo.recoveryPhone)) return;
 
       const body = {};
-      if (recoveryEmail) body.recoveryEmail = recoveryEmail;
-      if (recoveryPhone) body.recoveryPhone = recoveryPhone;
+      if (normalizedRecoveryInfo.recoveryEmail) body.recoveryEmail = normalizedRecoveryInfo.recoveryEmail;
+      if (normalizedRecoveryInfo.recoveryPhone) body.recoveryPhone = normalizedRecoveryInfo.recoveryPhone;
 
       const candidateUserKeys = [userKey, fallbackUserKey].filter(Boolean);
       let lastErrorText = '';
@@ -454,8 +510,8 @@ export default function App() {
           }
 
           const updatedUser = await verifyResponse.json();
-          const emailSaved = !recoveryEmail || updatedUser?.recoveryEmail === recoveryEmail;
-          const phoneSaved = !recoveryPhone || updatedUser?.recoveryPhone === recoveryPhone;
+          const emailSaved = !normalizedRecoveryInfo.recoveryEmail || updatedUser?.recoveryEmail === normalizedRecoveryInfo.recoveryEmail;
+          const phoneSaved = !normalizedRecoveryInfo.recoveryPhone || updatedUser?.recoveryPhone === normalizedRecoveryInfo.recoveryPhone;
 
           if (emailSaved && phoneSaved) return;
 
@@ -829,6 +885,21 @@ export default function App() {
 
     if (step === 1) {
       setIsLoading(true);
+      let normalizedRecoveryInfo;
+
+      try {
+        normalizedRecoveryInfo = buildNormalizedRecoveryInfo({
+          recoveryEmail: formData.recoveryEmail,
+          recoveryPhone: formData.recoveryPhone
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid recovery information.';
+        setProvisionError(message);
+        setGlobalError(message);
+        setIsLoading(false);
+        return;
+      }
+
       startProvision([
         { key: 'google-user', label: 'Create Google user', note: 'Preparing account creation request...' },
         { key: 'google-recovery', label: 'Write recovery security info', note: 'Waiting for user to be created...' }
@@ -844,24 +915,24 @@ export default function App() {
           action: 'Create user in admin.google.com',
           stepNumber: 1,
           meta: { email: formData.googleEmail },
-          task: () => api.createGoogleUser({ ...formData, googlePassword: tempPass }, parsedKeys)
+          task: () => api.createGoogleUser({ ...formData, ...normalizedRecoveryInfo, googlePassword: tempPass }, parsedKeys)
         });
 
         const userKey = googleResult?.id || googleResult?.primaryEmail || formData.googleEmail;
         setGoogleUserKey(userKey);
         updateProvisionStatus('google-user', 'success', 'Google account created successfully.');
 
-        updateProvisionStatus('google-recovery', 'inprogress', `Updating security info (${formData.recoveryEmail.trim()} / ${formData.recoveryPhone.trim()})...`);
+        updateProvisionStatus('google-recovery', 'inprogress', `Updating security info (${normalizedRecoveryInfo.recoveryEmail} / ${normalizedRecoveryInfo.recoveryPhone})...`);
         await executeWithErrorLogging({
           source: 'Google Admin',
           action: 'Write Google recovery fields',
           stepNumber: 1,
-          meta: { userKey, recoveryEmail: formData.recoveryEmail.trim(), recoveryPhone: formData.recoveryPhone.trim() },
+          meta: { userKey, recoveryEmail: normalizedRecoveryInfo.recoveryEmail, recoveryPhone: normalizedRecoveryInfo.recoveryPhone },
           task: () => api.updateGoogleRecoveryInfo({
             userKey,
             fallbackUserKey: formData.googleEmail,
-            recoveryEmail: formData.recoveryEmail.trim(),
-            recoveryPhone: formData.recoveryPhone.trim()
+            recoveryEmail: normalizedRecoveryInfo.recoveryEmail,
+            recoveryPhone: normalizedRecoveryInfo.recoveryPhone
           }, parsedKeys)
         });
 
