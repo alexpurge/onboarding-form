@@ -477,14 +477,25 @@ export default function App() {
     'AIRCALL_API_TOKEN'
   ];
 
+  const getAircallCredentials = (keys) => {
+    const apiId = (keys.AIRCALL_API_ID || '').trim();
+    const apiToken = (keys.AIRCALL_API_TOKEN || '').trim();
+
+    return {
+      apiId,
+      apiToken,
+      authHeader: btoa(`${apiId}:${apiToken}`)
+    };
+  };
+
   const parseAuthForm = () => ({
-    GOOGLE_ADMIN_TOKEN: parsedKeys.GOOGLE_ADMIN_TOKEN || '',
-    GOOGLE_CUSTOMER_ID: parsedKeys.GOOGLE_CUSTOMER_ID || '',
-    GOOGLE_OAUTH_CLIENT_ID: parsedKeys.GOOGLE_OAUTH_CLIENT_ID || '',
-    GOOGLE_OAUTH_CLIENT_SECRET: parsedKeys.GOOGLE_OAUTH_CLIENT_SECRET || '',
-    GOOGLE_OAUTH_REFRESH_TOKEN: parsedKeys.GOOGLE_OAUTH_REFRESH_TOKEN || '',
-    AIRCALL_API_ID: parsedKeys.AIRCALL_API_ID || '',
-    AIRCALL_API_TOKEN: parsedKeys.AIRCALL_API_TOKEN || ''
+    GOOGLE_ADMIN_TOKEN: (parsedKeys.GOOGLE_ADMIN_TOKEN || '').trim(),
+    GOOGLE_CUSTOMER_ID: (parsedKeys.GOOGLE_CUSTOMER_ID || '').trim(),
+    GOOGLE_OAUTH_CLIENT_ID: (parsedKeys.GOOGLE_OAUTH_CLIENT_ID || '').trim(),
+    GOOGLE_OAUTH_CLIENT_SECRET: (parsedKeys.GOOGLE_OAUTH_CLIENT_SECRET || '').trim(),
+    GOOGLE_OAUTH_REFRESH_TOKEN: (parsedKeys.GOOGLE_OAUTH_REFRESH_TOKEN || '').trim(),
+    AIRCALL_API_ID: (parsedKeys.AIRCALL_API_ID || '').trim(),
+    AIRCALL_API_TOKEN: (parsedKeys.AIRCALL_API_TOKEN || '').trim()
   });
 
   const setAuthField = (key, value) => {
@@ -510,15 +521,24 @@ export default function App() {
   };
 
   const validateAircallAuth = async (keys) => {
-    const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-    const response = await fetch('https://api.aircall.io/v1/users/me', {
-      method: 'GET',
-      headers: {
-        Authorization: `Basic ${authHeader}`
-      }
-    });
+    const { authHeader } = getAircallCredentials(keys);
+    const headers = { Authorization: `Basic ${authHeader}` };
+    const authChecks = [
+      { label: '/v1/users/me', url: 'https://api.aircall.io/v1/users/me' },
+      { label: '/v1/users', url: 'https://api.aircall.io/v1/users?page=1&per_page=1' }
+    ];
 
-    if (!response.ok) throw new Error('Aircall authentication failed. Confirm API ID and API Token are valid.');
+    let lastError = '';
+
+    for (const check of authChecks) {
+      const response = await fetch(check.url, { method: 'GET', headers });
+      if (response.ok) return;
+
+      const details = await response.text();
+      lastError = `${check.label} responded ${response.status}${details ? `: ${details}` : ''}`;
+    }
+
+    throw new Error(`Aircall authentication failed. Confirm API ID is in the first field and API Token is in the second field. ${lastError}`);
   };
 
   const authenticateIntegrations = async () => {
