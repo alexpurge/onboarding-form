@@ -598,15 +598,65 @@ export default function App() {
     )));
   };
 
-  const validateGoogleAuth = async (keys) => {
-    const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users?customer=${encodeURIComponent(keys.GOOGLE_CUSTOMER_ID)}&maxResults=1`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`
-      }
+  const fetchGoogleOAuthAccessToken = async (keys) => {
+    const params = new URLSearchParams({
+      client_id: keys.GOOGLE_OAUTH_CLIENT_ID,
+      client_secret: keys.GOOGLE_OAUTH_CLIENT_SECRET,
+      refresh_token: keys.GOOGLE_OAUTH_REFRESH_TOKEN,
+      grant_type: 'refresh_token'
     });
 
-    if (!response.ok) throw new Error('Google Admin authentication failed. Confirm token and customer ID are correct and have read/write scopes.');
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(`Google OAuth token refresh failed${details ? `: ${details}` : '.'}`);
+    }
+
+    const payload = await response.json();
+    return payload.access_token;
+  };
+
+  const validateGoogleAuth = async (keys) => {
+    const customers = [keys.GOOGLE_CUSTOMER_ID, 'my_customer'].filter(Boolean);
+    const attemptedTokens = [keys.GOOGLE_ADMIN_TOKEN].filter(Boolean);
+    let lastError = '';
+
+    for (const token of attemptedTokens) {
+      for (const customer of customers) {
+        const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users?customer=${encodeURIComponent(customer)}&maxResults=1`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (response.ok) return;
+
+        const details = await response.text();
+        lastError = `users.list (${customer}) responded ${response.status}${details ? `: ${details}` : ''}`;
+      }
+    }
+
+    if (keys.GOOGLE_OAUTH_CLIENT_SECRET && keys.GOOGLE_OAUTH_REFRESH_TOKEN) {
+      const refreshedAccessToken = await fetchGoogleOAuthAccessToken(keys);
+
+      for (const customer of customers) {
+        const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users?customer=${encodeURIComponent(customer)}&maxResults=1`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${refreshedAccessToken}` }
+        });
+
+        if (response.ok) return;
+
+        const details = await response.text();
+        lastError = `users.list (${customer}) responded ${response.status}${details ? `: ${details}` : ''}`;
+      }
+    }
+
+    throw new Error(`Google Admin authentication failed. ${lastError}`.trim());
   };
 
   const validateAircallAuth = async (keys) => {
