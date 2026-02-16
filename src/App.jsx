@@ -83,6 +83,23 @@ const customStyles = `
   .ph-loader-overlay { position: absolute; inset: 0; background-color: rgba(10,10,10,0.8); backdrop-filter: blur(4px); z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; animation: fadeIn 0.3s; }
   .ph-spinner { width: 3rem; height: 3rem; border: 4px solid var(--border-light); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 1rem; }
   .ph-loader-text { color: var(--primary); font-weight: 500; letter-spacing: 0.025em; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  .ph-auth-section { background-color: #101010; border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; margin-bottom: 1rem; }
+  .ph-auth-section-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.75rem; color: #e5e5e5; letter-spacing: 0.02em; }
+  .ph-auth-help { margin-top: -0.5rem; margin-bottom: 1rem; font-size: 0.8rem; color: var(--text-muted); }
+  .ph-auth-error { margin-top: 0.5rem; color: #f87171; font-size: 0.8rem; }
+  .ph-auth-overlay-card { width: min(90%, 30rem); background-color: #111; border: 1px solid var(--border-light); border-radius: 0.85rem; padding: 1.25rem; }
+  .ph-auth-overlay-title { font-size: 1rem; font-weight: 700; margin-bottom: 0.85rem; }
+  .ph-auth-progress-track { width: 100%; height: 0.4rem; border-radius: 999px; background-color: #1f1f1f; overflow: hidden; margin-bottom: 1rem; }
+  .ph-auth-progress-fill { width: 40%; height: 100%; background: linear-gradient(90deg, transparent, var(--primary), transparent); animation: authLoad 1.2s ease-in-out infinite; }
+  .ph-auth-status-list { display: flex; flex-direction: column; gap: 0.65rem; }
+  .ph-auth-status-item { display: flex; align-items: center; justify-content: space-between; background-color: #161616; border: 1px solid #2b2b2b; border-radius: 0.6rem; padding: 0.625rem 0.75rem; }
+  .ph-auth-status-left { display: flex; align-items: center; gap: 0.6rem; color: #f3f3f3; }
+  .ph-auth-status-note { font-size: 0.75rem; color: var(--text-muted); }
+  .ph-auth-badge { width: 1.35rem; height: 1.35rem; border-radius: 999px; border: 1px solid #3b3b3b; display: flex; align-items: center; justify-content: center; }
+  .ph-auth-badge.pending { background-color: #101010; }
+  .ph-auth-badge.inprogress { border-top-color: var(--primary); animation: spin 0.85s linear infinite; }
+  .ph-auth-badge.success { border-color: var(--success); background-color: rgba(34,197,94,0.2); color: var(--success); }
+  .ph-auth-badge.error { border-color: #ef4444; background-color: rgba(239,68,68,0.2); color: #ef4444; }
 
   .ph-node-tree { flex: 1; background-color: #0f0f0f; border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; items-center; position: relative; min-height: 300px; align-items: center; }
   .ph-node { background-color: #1a1a1a; border: 1px solid rgba(255,93,0,0.5); border-radius: 0.75rem; padding: 1rem; width: 100%; max-width: 24rem; position: relative; z-index: 10; box-shadow: 0 0 15px rgba(255,93,0,0.1); }
@@ -96,6 +113,7 @@ const customStyles = `
   @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+  @keyframes authLoad { 0% { transform: translateX(-130%); } 100% { transform: translateX(260%); } }
 `;
 
 // ==========================================
@@ -125,6 +143,8 @@ const Icons = {
   PhoneCall: (p) => <Icon {...p} d={["path d=M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z", "path d=M14.05 2a9 9 0 0 1 8 7.94", "path d=M14.05 6A5 5 0 0 1 18 10"]} />,
   MonitorPlay: (p) => <Icon {...p} d={["rect width=20 height=14 x=2 y=3 rx=2", "path d=M8 21h8", "path d=M12 17v4", "path d=m10 10 5 3-5 3v-6z"]} />,
   AlertCircle: (p) => <Icon {...p} d={["circle cx=12 cy=12 r=10", "line x1=12 x2=12 y1=8 y2=12", "line x1=12 x2=12.01 y1=16 y2=16"]} />,
+  LoaderCircle: (p) => <Icon {...p} d={["path d=M21 12a9 9 0 1 1-3.2-6.9"]} />,
+  Building2: (p) => <Icon {...p} d={["rect width=16 height=20 x=4 y=2 rx=2", "path d=M9 22v-4h6v4", "path d=M8 6h.01", "path d=M16 6h.01", "path d=M12 6h.01", "path d=M8 10h.01", "path d=M16 10h.01", "path d=M12 10h.01", "path d=M8 14h.01", "path d=M16 14h.01", "path d=M12 14h.01"]} />,
 };
 
 
@@ -190,8 +210,12 @@ export default function App() {
   const [flowView, setFlowView] = useState('import');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState("");
-  const [keysText, setKeysText] = useState("");
   const [parsedKeys, setParsedKeys] = useState({});
+  const [authError, setAuthError] = useState('');
+  const [authStatus, setAuthStatus] = useState([
+    { key: 'google', label: 'admin.google.com', state: 'pending', note: 'Waiting to authenticate' },
+    { key: 'aircall', label: 'Aircall', state: 'pending', note: 'Waiting to authenticate' }
+  ]);
   const [copied, setCopied] = useState(false);
   const [countrySearch, setCountrySearch] = useState('Australia');
   const progressSteps = 5;
@@ -240,16 +264,6 @@ export default function App() {
       return btoa(binary);
     },
 
-    parseKeys: (text) => {
-      const lines = text.split('\n');
-      const keys = {};
-      lines.forEach(line => {
-        const [key, val] = line.split('=');
-        if (key && val) keys[key.trim()] = val.trim();
-      });
-      return keys;
-    },
-    
     // 1. Google Workspace Admin API (Directory API)
     createGoogleUser: async (data, keys) => {
       try {
@@ -453,9 +467,102 @@ export default function App() {
     updateData('flowNodes', nextNodes);
   };
 
+  const requiredAuthFields = [
+    'GOOGLE_ADMIN_TOKEN',
+    'GOOGLE_CUSTOMER_ID',
+    'GOOGLE_OAUTH_CLIENT_ID',
+    'GOOGLE_OAUTH_CLIENT_SECRET',
+    'GOOGLE_OAUTH_REFRESH_TOKEN',
+    'AIRCALL_API_ID',
+    'AIRCALL_API_TOKEN'
+  ];
+
+  const parseAuthForm = () => ({
+    GOOGLE_ADMIN_TOKEN: parsedKeys.GOOGLE_ADMIN_TOKEN || '',
+    GOOGLE_CUSTOMER_ID: parsedKeys.GOOGLE_CUSTOMER_ID || '',
+    GOOGLE_OAUTH_CLIENT_ID: parsedKeys.GOOGLE_OAUTH_CLIENT_ID || '',
+    GOOGLE_OAUTH_CLIENT_SECRET: parsedKeys.GOOGLE_OAUTH_CLIENT_SECRET || '',
+    GOOGLE_OAUTH_REFRESH_TOKEN: parsedKeys.GOOGLE_OAUTH_REFRESH_TOKEN || '',
+    AIRCALL_API_ID: parsedKeys.AIRCALL_API_ID || '',
+    AIRCALL_API_TOKEN: parsedKeys.AIRCALL_API_TOKEN || ''
+  });
+
+  const setAuthField = (key, value) => {
+    setParsedKeys((prev) => ({ ...prev, [key]: value }));
+    setAuthError('');
+  };
+
+  const updateAuthStatus = (key, nextState, note) => {
+    setAuthStatus((prev) => prev.map((entry) => (
+      entry.key === key ? { ...entry, state: nextState, note } : entry
+    )));
+  };
+
+  const validateGoogleAuth = async (keys) => {
+    const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users?customer=${encodeURIComponent(keys.GOOGLE_CUSTOMER_ID)}&maxResults=1`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`
+      }
+    });
+
+    if (!response.ok) throw new Error('Google Admin authentication failed. Confirm token and customer ID are correct and have read/write scopes.');
+  };
+
+  const validateAircallAuth = async (keys) => {
+    const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
+    const response = await fetch('https://api.aircall.io/v1/users/me', {
+      method: 'GET',
+      headers: {
+        Authorization: `Basic ${authHeader}`
+      }
+    });
+
+    if (!response.ok) throw new Error('Aircall authentication failed. Confirm API ID and API Token are valid.');
+  };
+
+  const authenticateIntegrations = async () => {
+    const keys = parseAuthForm();
+    const missing = requiredAuthFields.filter((field) => !keys[field]);
+
+    if (missing.length > 0) {
+      throw new Error(`Please complete all required credentials before authenticating: ${missing.join(', ')}`);
+    }
+
+    setAuthStatus([
+      { key: 'google', label: 'admin.google.com', state: 'pending', note: 'Queued for authentication' },
+      { key: 'aircall', label: 'Aircall', state: 'pending', note: 'Queued for authentication' }
+    ]);
+
+    updateAuthStatus('google', 'inprogress', 'Authenticating read/write access...');
+    await validateGoogleAuth(keys);
+    updateAuthStatus('google', 'success', 'Read/write access verified');
+
+    updateAuthStatus('aircall', 'inprogress', 'Authenticating API credentials...');
+    await validateAircallAuth(keys);
+    updateAuthStatus('aircall', 'success', 'Access verified');
+
+    setParsedKeys(keys);
+  };
+
   const handleNext = async () => {
-    if (step === 0) setParsedKeys(api.parseKeys(keysText));
-    
+    if (step === 0) {
+      setIsLoading(true);
+      setLoadingText('Authenticating integrations...');
+      setAuthError('');
+      try {
+        await authenticateIntegrations();
+        setStep((prev) => prev + 1);
+      } catch (error) {
+        setAuthStatus((prev) => prev.map((entry) => entry.state === 'success' ? entry : { ...entry, state: 'error', note: 'Authentication failed' }));
+        const message = error instanceof Error ? error.message : 'Authentication failed. Please review credentials.';
+        setAuthError(message);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     if (step === 1) {
       setIsLoading(true); setLoadingText("Provisioning Google Workspace...");
       const tempPass = 'PD-' + Math.random().toString(36).slice(-8) + '!';
@@ -502,27 +609,34 @@ export default function App() {
   // ==========================================
   // STEP RENDERERS
   // ==========================================
-  const renderLogin = () => (
-    <div className="animate-fade-in">
-      <h2 style={{ textAlign: 'center', fontSize: '1.5rem', marginBottom: '0.5rem' }}>System Authentication</h2>
-      <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '2rem' }}>Provide environment keys to grant full Read/Write API access.</p>
-      
-      <div className="ph-input-group">
-        <label className="ph-label" style={{ color: 'var(--primary)' }}>Environment Variables</label>
-        <textarea 
-          value={keysText} 
-          onChange={(e) => setKeysText(e.target.value)} 
-          placeholder={`GOOGLE_ADMIN_TOKEN=Paste_Google_Workspace_Admin_Token_Here
-AIRCALL_API_ID=Paste_Aircall_API_ID_Here
-AIRCALL_API_TOKEN=Paste_Aircall_API_Token_Here
-ZERO_TENANT_ID=Paste_Xero_Tenant_ID_Here
-ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
-          className="ph-textarea" 
-          spellCheck="false" 
-        />
+  const renderLogin = () => {
+    const authValues = parseAuthForm();
+
+    return (
+      <div className="animate-fade-in">
+        <h2 style={{ textAlign: 'center', fontSize: '1.5rem', marginBottom: '0.5rem' }}>System Authentication</h2>
+        <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '2rem' }}>Authenticate admin.google.com and Aircall before you can begin onboarding.</p>
+
+        <div className="ph-auth-section">
+          <h3 className="ph-auth-section-title">Google Admin (read + write credentials)</h3>
+          <p className="ph-auth-help">Enter every credential required for user creation, 2-step verification setup, and recovery method updates.</p>
+          <Input label="Google Admin Access Token" value={authValues.GOOGLE_ADMIN_TOKEN} onChange={(v) => setAuthField('GOOGLE_ADMIN_TOKEN', v)} placeholder="Paste token with admin.directory.user + admin.directory.userschema + security scopes" />
+          <Input label="Google Customer ID" value={authValues.GOOGLE_CUSTOMER_ID} onChange={(v) => setAuthField('GOOGLE_CUSTOMER_ID', v)} placeholder="e.g. C0123abc4" />
+          <Input label="Google OAuth Client ID" value={authValues.GOOGLE_OAUTH_CLIENT_ID} onChange={(v) => setAuthField('GOOGLE_OAUTH_CLIENT_ID', v)} placeholder="OAuth client ID for delegated admin app" />
+          <Input label="Google OAuth Client Secret" value={authValues.GOOGLE_OAUTH_CLIENT_SECRET} onChange={(v) => setAuthField('GOOGLE_OAUTH_CLIENT_SECRET', v)} placeholder="OAuth client secret" />
+          <Input label="Google OAuth Refresh Token" value={authValues.GOOGLE_OAUTH_REFRESH_TOKEN} onChange={(v) => setAuthField('GOOGLE_OAUTH_REFRESH_TOKEN', v)} placeholder="Refresh token for persistent read/write admin access" />
+        </div>
+
+        <div className="ph-auth-section">
+          <h3 className="ph-auth-section-title">Aircall API</h3>
+          <Input label="Aircall API ID" value={authValues.AIRCALL_API_ID} onChange={(v) => setAuthField('AIRCALL_API_ID', v)} placeholder="Paste Aircall API ID" />
+          <Input label="Aircall API Token" value={authValues.AIRCALL_API_TOKEN} onChange={(v) => setAuthField('AIRCALL_API_TOKEN', v)} placeholder="Paste Aircall API Token" />
+        </div>
+
+        {authError && <p className="ph-auth-error">{authError}</p>}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderGoogle = () => (
     <div className="animate-fade-in">
@@ -814,8 +928,37 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
           <div className="ph-card">
             {isLoading && (
               <div className="ph-loader-overlay">
-                <div className="ph-spinner"></div>
-                <p className="ph-loader-text">{loadingText}</p>
+                {step === 0 ? (
+                  <div className="ph-auth-overlay-card">
+                    <h3 className="ph-auth-overlay-title">Authenticating Platform Access</h3>
+                    <div className="ph-auth-progress-track">
+                      <div className="ph-auth-progress-fill"></div>
+                    </div>
+                    <div className="ph-auth-status-list">
+                      {authStatus.map((status) => (
+                        <div key={status.key} className="ph-auth-status-item">
+                          <div className="ph-auth-status-left">
+                            {status.key === 'google' ? <Icons.Building2 size={16} /> : <Icons.PhoneCall size={16} />}
+                            <div>
+                              <div>{status.label}</div>
+                              <div className="ph-auth-status-note">{status.note}</div>
+                            </div>
+                          </div>
+                          <div className={`ph-auth-badge ${status.state}`}>
+                            {status.state === 'success' && <Icons.Check size={12} strokeWidth={3} />}
+                            {status.state === 'error' && <Icons.AlertCircle size={12} />}
+                            {status.state === 'pending' && <Icons.LoaderCircle size={12} />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="ph-spinner"></div>
+                    <p className="ph-loader-text">{loadingText}</p>
+                  </>
+                )}
               </div>
             )}
 
@@ -854,7 +997,7 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
                 <button onClick={handleBack} disabled={step === 0 || isLoading} className="ph-btn ph-btn-ghost">
                   <Icons.ChevronLeft size={16} /> <span>Back</span>
                 </button>
-                <button onClick={handleNext} disabled={isLoading || (step === 0 && keysText.length < 20)} className="ph-btn ph-btn-primary">
+                <button onClick={handleNext} disabled={isLoading} className="ph-btn ph-btn-primary">
                   <span>{step === 0 ? 'Authenticate & Begin' : step === STEPS.length - 2 ? 'Finalize Onboarding' : 'Next Step'}</span> <Icons.ChevronRight size={16} />
                 </button>
               </div>
