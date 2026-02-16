@@ -34,7 +34,7 @@ const customStyles = `
 
   .ph-progress-bar { width: 100%; max-width: 28rem; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; position: relative; }
   .ph-progress-line-bg { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 100%; height: 4px; background-color: var(--border); z-index: -1; border-radius: 2px; }
-  .ph-progress-line-fill { position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 4px; background-color: var(--primary); z-index: -1; border-radius: 2px; transition: width 0.5s ease-out; }
+  .ph-progress-line-fill { position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 4px; background-color: var(--primary); z-index: -1; border-radius: 2px; transition: width 0.65s ease; }
   .ph-progress-dot { width: 1.5rem; height: 1.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; transition: all 0.3s; background-color: var(--bg-input); border: 1px solid var(--border-light); color: var(--text-muted); }
   .ph-progress-dot.active { background-color: var(--primary); color: white; box-shadow: 0 0 10px rgba(255,93,0,0.8); border-color: var(--primary); }
   .ph-progress-dot.passed { background-color: var(--primary); color: white; border-color: var(--primary); }
@@ -43,7 +43,10 @@ const customStyles = `
   .ph-card-content { padding: 2rem; flex: 1; }
   .ph-card-footer { padding: 1.25rem 2rem; border-top: 1px solid var(--border); background-color: #0f0f0f; display: flex; justify-content: space-between; align-items: center; }
 
-  .ph-btn { display: inline-flex; items-center; justify-content: center; gap: 0.5rem; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s; border: none; outline: none; }
+  .ph-btn { display: inline-flex; items-center; justify-content: center; gap: 0.5rem; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease; border: none; outline: none; }
+  .ph-btn:focus, .ph-btn:focus-visible { outline: none; }
+  .ph-btn:focus-visible { box-shadow: 0 0 0 2px rgba(255, 93, 0, 0.45); }
+  .ph-btn:active:not(:disabled) { transform: translateY(1px) scale(0.99); }
   .ph-btn-primary { background-color: var(--primary); color: white; box-shadow: 0 4px 15px rgba(255,93,0,0.3); }
   .ph-btn-primary:hover:not(:disabled) { background-color: var(--primary-hover); box-shadow: 0 6px 20px rgba(255,93,0,0.5); }
   .ph-btn-primary:disabled { background-color: #333; color: #888; cursor: not-allowed; box-shadow: none; }
@@ -191,6 +194,9 @@ export default function App() {
   const [parsedKeys, setParsedKeys] = useState({});
   const [copied, setCopied] = useState(false);
   const [countrySearch, setCountrySearch] = useState('Australia');
+  const progressSteps = 5;
+  const activeProgressStep = Math.min(Math.max(step, 1), progressSteps);
+  const progressFill = ((activeProgressStep - 1) / (progressSteps - 1)) * 100;
 
   // Master State
   const [formData, setFormData] = useState({
@@ -818,13 +824,13 @@ ZERO_ACCESS_TOKEN=Paste_Xero_Access_Token_Here`}
                 <div className="ph-logo-box">
                   <img src={PURGEHUB_LOGO_URL} alt="PurgeHub logo" className="ph-logo-image" />
                 </div>
-                <h1 className="ph-logo-text">Purge Hub</h1>
+                <h1 className="ph-logo-text">Onboarding Form</h1>
               </div>
 
               {step > 0 && step < STEPS.length - 1 && (
                 <div className="ph-progress-bar">
                   <div className="ph-progress-line-bg"></div>
-                  <div className="ph-progress-line-fill" style={{ width: `${(step / (STEPS.length - 2)) * 100}%` }}></div>
+                  <div className="ph-progress-line-fill" style={{ width: `${progressFill}%` }}></div>
                   {STEPS.slice(1, -1).map((s, idx) => {
                     const stepNum = idx + 1;
                     const isActive = step === stepNum;
