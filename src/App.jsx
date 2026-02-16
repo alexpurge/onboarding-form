@@ -587,10 +587,6 @@ export default function App() {
       body.set('email', data.googleEmail || '');
       body.set('role', data.aircallRole || 'agent');
 
-      if (data.aircallTeam) {
-        body.append('team_ids[]', data.aircallTeam);
-      }
-
       const response = await fetch("https://api.aircall.io/v1/users", {
         method: "POST",
         headers: {
@@ -672,6 +668,25 @@ export default function App() {
       }
 
       return result;
+    },
+
+    addAircallUserToTeam: async ({ userId, teamId }, keys) => {
+      const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
+      const body = new URLSearchParams();
+      body.append('user_ids[]', String(userId));
+
+      const response = await fetch(`https://api.aircall.io/v1/teams/${encodeURIComponent(teamId)}/users/add`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${authHeader}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+        },
+        body: body.toString()
+      });
+
+      if (!response.ok) throw new Error(await formatErrorForDisplay(response));
+      return response.json();
     },
 
     createAircallNumber: async (data, keys) => {
@@ -1113,14 +1128,37 @@ export default function App() {
       setIsLoading(true);
 
       if (step === 2) {
-        setLoadingText('Provisioning Aircall Agent...');
-        await executeWithErrorLogging({
+        startProvision([
+          { key: 'aircall-user', label: 'Create Aircall user', note: 'Preparing Aircall user creation request...' },
+          { key: 'aircall-team', label: 'Assign user to selected team', note: 'Waiting for Aircall user to be created...' }
+        ]);
+
+        updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user...');
+        const aircallResult = await executeWithErrorLogging({
           source: 'Aircall',
           action: 'Create Aircall user',
           stepNumber: 2,
           meta: { email: formData.googleEmail, role: formData.aircallRole },
           task: () => api.createAircallUser(formData, parsedKeys)
         });
+
+        const aircallUserId = aircallResult?.user?.id;
+        if (!aircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
+
+        updateProvisionStatus('aircall-user', 'success', 'Aircall user created successfully.');
+
+        updateProvisionStatus('aircall-team', 'inprogress', 'Assigning Aircall user to selected team...');
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Assign Aircall user to team',
+          stepNumber: 2,
+          meta: { userId: aircallUserId, teamId: formData.aircallTeam },
+          task: () => api.addAircallUserToTeam({ userId: aircallUserId, teamId: formData.aircallTeam }, parsedKeys)
+        });
+
+        updateProvisionStatus('aircall-team', 'success', 'Aircall user added to selected team.');
+
+        await new Promise((resolve) => setTimeout(resolve, 1200));
       }
 
       if (step === 3) {
@@ -1158,7 +1196,13 @@ export default function App() {
 
       setStep(prev => prev + 1);
     } catch (error) {
+      if (step === 2) {
+        setProvisionStatus((prev) => prev.map((entry) => (
+          entry.state === 'success' ? entry : { ...entry, state: 'error', note: 'Failed. Check credentials and Aircall permissions.' }
+        )));
+      }
       const message = error instanceof Error ? error.message : 'Step failed unexpectedly.';
+      setProvisionError(message);
       setGlobalError(message);
     } finally {
       setIsLoading(false);
@@ -1610,9 +1654,9 @@ Line 6: Xero Tenant ID (optional)`}
                       ))}
                     </div>
                   </div>
-                ) : step === 1 ? (
+                ) : step === 1 || step === 2 ? (
                   <div className="ph-provision-overlay-card">
-                    <h3 className="ph-provision-title">Provisioning admin.google.com</h3>
+                    <h3 className="ph-provision-title">{step === 1 ? 'Provisioning admin.google.com' : 'Provisioning Aircall User'}</h3>
                     <p className="ph-provision-subtitle">We only move forward when every task is complete.</p>
                     <div className="ph-provision-list">
                       {provisionStatus.map((status) => (
