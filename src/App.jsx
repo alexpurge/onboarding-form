@@ -342,40 +342,64 @@ export default function App() {
       return result;
     },
 
-    updateGoogleRecoveryInfo: async ({ userKey, recoveryEmail, recoveryPhone }, keys) => {
-      if (!userKey || (!recoveryEmail && !recoveryPhone)) return;
+    updateGoogleRecoveryInfo: async ({ userKey, fallbackUserKey, recoveryEmail, recoveryPhone }, keys) => {
+      if ((!userKey && !fallbackUserKey) || (!recoveryEmail && !recoveryPhone)) return;
 
       const body = {};
       if (recoveryEmail) body.recoveryEmail = recoveryEmail;
       if (recoveryPhone) body.recoveryPhone = recoveryPhone;
 
-      const patchResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(userKey)}`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      });
+      const candidateUserKeys = [userKey, fallbackUserKey].filter(Boolean);
+      let lastErrorText = '';
 
-      if (!patchResponse.ok) throw new Error(await patchResponse.text());
+      for (const candidateKey of candidateUserKeys) {
+        for (let attempt = 1; attempt <= 4; attempt += 1) {
+          const patchResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(candidateKey)}`, {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+          });
 
-      const verifyResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(userKey)}?projection=full`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`
+          if (!patchResponse.ok) {
+            lastErrorText = await patchResponse.text();
+            if (patchResponse.status === 404 && attempt < 4) {
+              await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+              continue;
+            }
+            break;
+          }
+
+          const verifyResponse = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(candidateKey)}?projection=full`, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`
+            }
+          });
+
+          if (!verifyResponse.ok) {
+            lastErrorText = await verifyResponse.text();
+            if (verifyResponse.status === 404 && attempt < 4) {
+              await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+              continue;
+            }
+            break;
+          }
+
+          const updatedUser = await verifyResponse.json();
+          const emailSaved = !recoveryEmail || updatedUser?.recoveryEmail === recoveryEmail;
+          const phoneSaved = !recoveryPhone || updatedUser?.recoveryPhone === recoveryPhone;
+
+          if (emailSaved && phoneSaved) return;
+
+          lastErrorText = 'Google recovery information did not persist. Ensure API scopes allow writing user recovery fields.';
+          break;
         }
-      });
-
-      if (!verifyResponse.ok) throw new Error(await verifyResponse.text());
-
-      const updatedUser = await verifyResponse.json();
-      const emailSaved = !recoveryEmail || updatedUser?.recoveryEmail === recoveryEmail;
-      const phoneSaved = !recoveryPhone || updatedUser?.recoveryPhone === recoveryPhone;
-
-      if (!emailSaved || !phoneSaved) {
-        throw new Error('Google recovery information did not persist. Ensure API scopes allow writing user recovery fields.');
       }
+
+      throw new Error(lastErrorText || 'Unable to save Google recovery information.');
     },
 
     resetGooglePassword: async ({ userKey, password }, keys) => {
@@ -751,9 +775,10 @@ export default function App() {
         setGoogleUserKey(userKey);
         updateProvisionStatus('google-user', 'success', 'Google account created successfully.');
 
-        updateProvisionStatus('google-recovery', 'inprogress', 'Updating recovery email + phone...');
+        updateProvisionStatus('google-recovery', 'inprogress', `Updating security info (${formData.recoveryEmail.trim()} / ${formData.recoveryPhone.trim()})...`);
         await api.updateGoogleRecoveryInfo({
           userKey,
+          fallbackUserKey: formData.googleEmail,
           recoveryEmail: formData.recoveryEmail.trim(),
           recoveryPhone: formData.recoveryPhone.trim()
         }, parsedKeys);
