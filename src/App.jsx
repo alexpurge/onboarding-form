@@ -176,6 +176,19 @@ const Input = ({ label, value, onChange, placeholder, disabled, type = "text" })
   </div>
 );
 
+const Textarea = ({ label, value, onChange, placeholder, rows = 6 }) => (
+  <div className="ph-input-group">
+    <label className="ph-label">{label}</label>
+    <textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      rows={rows}
+      className="ph-textarea"
+    />
+  </div>
+);
+
 const Select = ({ label, value, onChange, options }) => (
   <div className="ph-input-group">
     <label className="ph-label">{label}</label>
@@ -205,13 +218,19 @@ const Checkbox = ({ label, checked, onChange }) => (
 export default function App() {
   const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/QjjDjuU.png';
   const PURGEHUB_LOGO_URL = 'https://i.imgur.com/QjjDjuU.png';
+  const HARDCODED_GOOGLE_CUSTOMER_ID = 'REPLACE_WITH_GOOGLE_CUSTOMER_ID';
+  const HARDCODED_GOOGLE_OAUTH_CLIENT_ID = 'REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID';
+  const HARDCODED_AIRCALL_API_ID = 'REPLACE_WITH_AIRCALL_API_ID';
 
   const [step, setStep] = useState(0);
   const [flowView, setFlowView] = useState('import');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState("");
+  const [credentialBundle, setCredentialBundle] = useState('');
   const [parsedKeys, setParsedKeys] = useState({});
   const [authError, setAuthError] = useState('');
+  const [passwordResetStatus, setPasswordResetStatus] = useState('');
+  const [googleUserKey, setGoogleUserKey] = useState('');
   const [authStatus, setAuthStatus] = useState([
     { key: 'google', label: 'admin.google.com', state: 'pending', note: 'Waiting to authenticate' },
     { key: 'aircall', label: 'Aircall', state: 'pending', note: 'Waiting to authenticate' }
@@ -225,6 +244,7 @@ export default function App() {
   // Master State
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', photoUrl: HARDCODED_PROFILE_PHOTO_URL, googleEmail: '', googlePassword: '',
+    recoveryEmail: '', recoveryPhone: '',
     aircallRole: 'agent', aircallTeam: '',
     acCountry: 'Australia', acType: 'Mobile', acRegion: '4', acName: '',
     flowImportTarget: '', flowAdjustSteps: false, flowUseSimilar: false, flowNodes: [],
@@ -242,6 +262,10 @@ export default function App() {
     const fullName = `${formData.firstName} ${formData.lastName}`.trim();
     setFormData(prev => ({ ...prev, acName: fullName }));
   }, [formData.firstName, formData.lastName]);
+
+  useEffect(() => {
+    setAuthError('');
+  }, [credentialBundle]);
 
   // ==========================================
   // 5. DIRECT API INTERACTION LAYER 
@@ -303,8 +327,45 @@ export default function App() {
       } catch (err) {
         console.error("Google API Error:", err);
         // Fallback simulate to allow flow to continue if credentials are fake during dev
-        await new Promise(res => setTimeout(res, 1500)); 
+        await new Promise(res => setTimeout(res, 1500));
+        return { id: data.googleEmail, primaryEmail: data.googleEmail };
       }
+    },
+
+    updateGoogleRecoveryInfo: async ({ userKey, recoveryEmail, recoveryPhone }, keys) => {
+      if (!userKey || (!recoveryEmail && !recoveryPhone)) return;
+
+      const body = {};
+      if (recoveryEmail) body.recoveryEmail = recoveryEmail;
+      if (recoveryPhone) body.recoveryPhone = recoveryPhone;
+
+      const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(userKey)}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) throw new Error(await response.text());
+    },
+
+    resetGooglePassword: async ({ userKey, password }, keys) => {
+      const response = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(userKey)}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${keys.GOOGLE_ADMIN_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          password,
+          changePasswordAtNextLogin: true
+        })
+      });
+
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
     },
 
     // 2. Aircall API (Users, Numbers)
@@ -469,11 +530,8 @@ export default function App() {
 
   const requiredAuthFields = [
     'GOOGLE_ADMIN_TOKEN',
-    'GOOGLE_CUSTOMER_ID',
-    'GOOGLE_OAUTH_CLIENT_ID',
     'GOOGLE_OAUTH_CLIENT_SECRET',
     'GOOGLE_OAUTH_REFRESH_TOKEN',
-    'AIRCALL_API_ID',
     'AIRCALL_API_TOKEN'
   ];
 
@@ -488,19 +546,21 @@ export default function App() {
     };
   };
 
-  const parseAuthForm = () => ({
-    GOOGLE_ADMIN_TOKEN: (parsedKeys.GOOGLE_ADMIN_TOKEN || '').trim(),
-    GOOGLE_CUSTOMER_ID: (parsedKeys.GOOGLE_CUSTOMER_ID || '').trim(),
-    GOOGLE_OAUTH_CLIENT_ID: (parsedKeys.GOOGLE_OAUTH_CLIENT_ID || '').trim(),
-    GOOGLE_OAUTH_CLIENT_SECRET: (parsedKeys.GOOGLE_OAUTH_CLIENT_SECRET || '').trim(),
-    GOOGLE_OAUTH_REFRESH_TOKEN: (parsedKeys.GOOGLE_OAUTH_REFRESH_TOKEN || '').trim(),
-    AIRCALL_API_ID: (parsedKeys.AIRCALL_API_ID || '').trim(),
-    AIRCALL_API_TOKEN: (parsedKeys.AIRCALL_API_TOKEN || '').trim()
-  });
+  const parseAuthForm = () => {
+    const lines = credentialBundle
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
 
-  const setAuthField = (key, value) => {
-    setParsedKeys((prev) => ({ ...prev, [key]: value }));
-    setAuthError('');
+    return {
+      GOOGLE_ADMIN_TOKEN: lines[0] || '',
+      GOOGLE_CUSTOMER_ID: HARDCODED_GOOGLE_CUSTOMER_ID,
+      GOOGLE_OAUTH_CLIENT_ID: HARDCODED_GOOGLE_OAUTH_CLIENT_ID,
+      GOOGLE_OAUTH_CLIENT_SECRET: lines[1] || '',
+      GOOGLE_OAUTH_REFRESH_TOKEN: lines[2] || '',
+      AIRCALL_API_ID: HARDCODED_AIRCALL_API_ID,
+      AIRCALL_API_TOKEN: lines[3] || ''
+    };
   };
 
   const updateAuthStatus = (key, nextState, note) => {
@@ -538,7 +598,7 @@ export default function App() {
       lastError = `${check.label} responded ${response.status}${details ? `: ${details}` : ''}`;
     }
 
-    throw new Error(`Aircall authentication failed. Confirm API ID is in the first field and API Token is in the second field. ${lastError}`);
+    throw new Error(`Aircall authentication failed. Confirm the Aircall API token is valid. ${lastError}`);
   };
 
   const authenticateIntegrations = async () => {
@@ -587,7 +647,14 @@ export default function App() {
       setIsLoading(true); setLoadingText("Provisioning Google Workspace...");
       const tempPass = 'PD-' + Math.random().toString(36).slice(-8) + '!';
       setFormData(prev => ({ ...prev, googlePassword: tempPass }));
-      await api.createGoogleUser({ ...formData, googlePassword: tempPass }, parsedKeys);
+      const googleResult = await api.createGoogleUser({ ...formData, googlePassword: tempPass }, parsedKeys);
+      const userKey = googleResult?.id || googleResult?.primaryEmail || formData.googleEmail;
+      setGoogleUserKey(userKey);
+      await api.updateGoogleRecoveryInfo({
+        userKey,
+        recoveryEmail: formData.recoveryEmail.trim(),
+        recoveryPhone: formData.recoveryPhone.trim()
+      }, parsedKeys);
       setIsLoading(false);
     }
     
@@ -626,31 +693,50 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleResetPassword = async () => {
+    if (!googleUserKey) {
+      setPasswordResetStatus('No Google user found to reset.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setLoadingText('Resetting Google Workspace password...');
+      setPasswordResetStatus('');
+      const tempPass = 'PD-' + Math.random().toString(36).slice(-8) + '!';
+      await api.resetGooglePassword({ userKey: googleUserKey, password: tempPass }, parsedKeys);
+      setFormData((prev) => ({ ...prev, googlePassword: tempPass }));
+      setPasswordResetStatus('Password reset complete. New temporary password generated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to reset password.';
+      setPasswordResetStatus(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // ==========================================
   // STEP RENDERERS
   // ==========================================
   const renderLogin = () => {
-    const authValues = parseAuthForm();
-
     return (
       <div className="animate-fade-in">
         <h2 style={{ textAlign: 'center', fontSize: '1.5rem', marginBottom: '0.5rem' }}>System Authentication</h2>
         <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '2rem' }}>Authenticate admin.google.com and Aircall before you can begin onboarding.</p>
 
         <div className="ph-auth-section">
-          <h3 className="ph-auth-section-title">Google Admin (read + write credentials)</h3>
-          <p className="ph-auth-help">Enter every credential required for user creation, 2-step verification setup, and recovery method updates.</p>
-          <Input label="Google Admin Access Token" value={authValues.GOOGLE_ADMIN_TOKEN} onChange={(v) => setAuthField('GOOGLE_ADMIN_TOKEN', v)} placeholder="Paste token with admin.directory.user + admin.directory.userschema + security scopes" />
-          <Input label="Google Customer ID" value={authValues.GOOGLE_CUSTOMER_ID} onChange={(v) => setAuthField('GOOGLE_CUSTOMER_ID', v)} placeholder="e.g. C0123abc4" />
-          <Input label="Google OAuth Client ID" value={authValues.GOOGLE_OAUTH_CLIENT_ID} onChange={(v) => setAuthField('GOOGLE_OAUTH_CLIENT_ID', v)} placeholder="OAuth client ID for delegated admin app" />
-          <Input label="Google OAuth Client Secret" value={authValues.GOOGLE_OAUTH_CLIENT_SECRET} onChange={(v) => setAuthField('GOOGLE_OAUTH_CLIENT_SECRET', v)} placeholder="OAuth client secret" />
-          <Input label="Google OAuth Refresh Token" value={authValues.GOOGLE_OAUTH_REFRESH_TOKEN} onChange={(v) => setAuthField('GOOGLE_OAUTH_REFRESH_TOKEN', v)} placeholder="Refresh token for persistent read/write admin access" />
-        </div>
-
-        <div className="ph-auth-section">
-          <h3 className="ph-auth-section-title">Aircall API</h3>
-          <Input label="Aircall API ID" value={authValues.AIRCALL_API_ID} onChange={(v) => setAuthField('AIRCALL_API_ID', v)} placeholder="Paste Aircall API ID" />
-          <Input label="Aircall API Token" value={authValues.AIRCALL_API_TOKEN} onChange={(v) => setAuthField('AIRCALL_API_TOKEN', v)} placeholder="Paste Aircall API Token" />
+          <h3 className="ph-auth-section-title">Integration Credentials</h3>
+          <p className="ph-auth-help">Paste credentials line-by-line in this exact order.</p>
+          <Textarea
+            label="Credential Bundle"
+            value={credentialBundle}
+            onChange={setCredentialBundle}
+            placeholder={`Line 1: Google Admin Access Token
+Line 2: Google OAuth Client Secret
+Line 3: Google OAuth Refresh Token
+Line 4: Aircall API Token`}
+            rows={8}
+          />
         </div>
 
         {authError && <p className="ph-auth-error">{authError}</p>}
@@ -669,6 +755,14 @@ export default function App() {
         <Input label="Last Name" value={formData.lastName} onChange={(v) => updateData('lastName', v)} placeholder="Doe" />
       </div>
       <Input label="Primary Email (Auto-Generated)" value={formData.googleEmail} onChange={() => {}} disabled={true} />
+
+      <div className="ph-auth-section" style={{ marginTop: '0.5rem' }}>
+        <h3 className="ph-auth-section-title">Recovery Information</h3>
+        <div className="ph-grid-2">
+          <Input label="Recovery Email" value={formData.recoveryEmail} onChange={(v) => updateData('recoveryEmail', v)} placeholder="name@backupmail.com" />
+          <Input label="Recovery Phone" value={formData.recoveryPhone} onChange={(v) => updateData('recoveryPhone', v)} placeholder="+61400000000" />
+        </div>
+      </div>
       
       <div className="ph-input-group">
         <label className="ph-label">Profile Photo URL (Imgur)</label>
@@ -902,6 +996,15 @@ export default function App() {
              </div>
           </div>
         </div>
+      </div>
+
+      <div style={{ marginBottom: '1.5rem' }}>
+        <button onClick={handleResetPassword} className="ph-btn ph-btn-outline">
+          Reset Password Again
+        </button>
+        {passwordResetStatus && (
+          <p style={{ marginTop: '0.75rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>{passwordResetStatus}</p>
+        )}
       </div>
 
       <div className="ph-grid-2">
