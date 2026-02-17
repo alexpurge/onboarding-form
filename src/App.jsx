@@ -729,25 +729,34 @@ export default function App() {
         }
 
         // Step 3: Assign team
-        if (!normalizedTeamId) {
-          throw new Error('User created, but Team assignment failed: missing team ID.');
+        const team_id = normalizedTeamId || null;
+        const new_user_id = userId;
+
+        if (team_id == null) {
+          throw new Error('Team ID is missing.');
         }
+
+        console.log('Attempting POST to /v1/teams/' + team_id + '/users');
 
         const assignTeamResponse = await fetchWithDiagnostics({
           provider: 'Aircall',
           method: 'POST',
-          url: getAircallUrl(`/v1/teams/${encodeURIComponent(normalizedTeamId)}/users`),
+          url: getAircallUrl(`/v1/teams/${encodeURIComponent(team_id)}/users`),
           options: {
             headers: {
               Authorization: `Basic ${authHeader}`,
               Accept: 'application/json',
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ user_id: userId })
+            body: JSON.stringify({ users: [new_user_id] })
           }
         });
 
         if (!assignTeamResponse.ok) {
+          if (assignTeamResponse.status === 404) {
+            throw new Error('Team ID ' + team_id + ' does not exist in Aircall.');
+          }
+
           throw new Error(`User created, but Team assignment failed: ${await formatErrorForDisplay(assignTeamResponse)}`);
         }
 
@@ -909,26 +918,35 @@ export default function App() {
         throw new Error('Cannot assign Aircall team: missing user ID.');
       }
 
-      if (!normalizedTeamId) {
-        throw new Error('Cannot assign Aircall team: missing team ID.');
+      const team_id = normalizedTeamId || null;
+      const new_user_id = normalizedUserId;
+
+      if (team_id == null) {
+        throw new Error('Team ID is missing.');
       }
+
+      console.log('Attempting POST to /v1/teams/' + team_id + '/users');
 
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
         method: 'POST',
-        url: getAircallUrl(`/v1/teams/${encodeURIComponent(normalizedTeamId)}/users`),
+        url: getAircallUrl(`/v1/teams/${encodeURIComponent(team_id)}/users`),
         options: {
           headers: {
             Authorization: `Basic ${authHeader}`,
             Accept: 'application/json',
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ user_id: normalizedUserId })
+          body: JSON.stringify({ users: [new_user_id] })
         }
       });
 
       if (!response.ok) {
-        throw new Error(`POST /v1/teams/${encodeURIComponent(normalizedTeamId)}/users: ${await formatErrorForDisplay(response)}`);
+        if (response.status === 404) {
+          throw new Error('Team ID ' + team_id + ' does not exist in Aircall.');
+        }
+
+        throw new Error(`POST /v1/teams/${encodeURIComponent(team_id)}/users: ${await formatErrorForDisplay(response)}`);
       }
 
       try {
