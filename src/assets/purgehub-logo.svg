@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PurgeHub logo">
+  <rect width="512" height="512" fill="#000"/>
+  <path fill="#ff8700" d="M39 64h224c117 0 212 95 212 212S380 488 263 488h-98l47-83h58c71 0 129-58 129-129s-58-129-129-129H117L39 64z"/>
+  <path fill="#ff8700" d="M39 488l61-256h120c53 0 96 43 96 96s-43 96-96 96h-69l-112 64z"/>
+</svg>
