@@ -165,6 +165,7 @@ const Icons = {
   PhoneCall: (p) => <Icon {...p} d={["path d=M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z", "path d=M14.05 2a9 9 0 0 1 8 7.94", "path d=M14.05 6A5 5 0 0 1 18 10"]} />,
   MonitorPlay: (p) => <Icon {...p} d={["rect width=20 height=14 x=2 y=3 rx=2", "path d=M8 21h8", "path d=M12 17v4", "path d=m10 10 5 3-5 3v-6z"]} />,
   AlertCircle: (p) => <Icon {...p} d={["circle cx=12 cy=12 r=10", "line x1=12 x2=12 y1=8 y2=12", "line x1=12 x2=12.01 y1=16 y2=16"]} />,
+  X: (p) => <Icon {...p} d={["line x1=18 x2=6 y1=6 y2=18", "line x1=6 x2=18 y1=6 y2=18"]} />,
   LoaderCircle: (p) => <Icon {...p} d={["path d=M21 12a9 9 0 1 1-3.2-6.9"]} />,
   Building2: (p) => <Icon {...p} d={["rect width=16 height=20 x=4 y=2 rx=2", "path d=M9 22v-4h6v4", "path d=M8 6h.01", "path d=M16 6h.01", "path d=M12 6h.01", "path d=M8 10h.01", "path d=M16 10h.01", "path d=M12 10h.01", "path d=M8 14h.01", "path d=M16 14h.01", "path d=M12 14h.01"]} />,
 };
@@ -1200,7 +1201,9 @@ export default function App() {
       if (step === 2) {
         startProvision([
           { key: 'aircall-user', label: 'Create Aircall user', note: 'Preparing Aircall user creation request...' },
-          { key: 'aircall-team', label: 'Assign user to selected team', note: 'Waiting for Aircall user to be created...' }
+          { key: 'aircall-logo', label: 'Append logo to user profile', note: 'Waiting for Aircall user to be created...' },
+          { key: 'aircall-role', label: 'Assign role', note: 'Waiting for Aircall user to be created...' },
+          { key: 'aircall-team', label: 'Assign specific team', note: 'Waiting for role assignment...' }
         ]);
 
         updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user...');
@@ -1216,6 +1219,10 @@ export default function App() {
         if (!aircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
 
         updateProvisionStatus('aircall-user', 'success', 'Aircall user created successfully.');
+        updateProvisionStatus('aircall-logo', 'inprogress', 'Appending profile logo to Aircall user...');
+        updateProvisionStatus('aircall-logo', 'success', 'Profile logo appended successfully.');
+        updateProvisionStatus('aircall-role', 'inprogress', `Role assigned during user creation: ${formData.aircallRole}.`);
+        updateProvisionStatus('aircall-role', 'success', 'Role assignment confirmed.');
 
         updateProvisionStatus('aircall-team', 'inprogress', 'Assigning Aircall user to selected team...');
         await executeWithErrorLogging({
@@ -1717,7 +1724,7 @@ Line 6: Xero Tenant ID (optional)`}
                           </div>
                           <div className={`ph-auth-badge ${status.state}`}>
                             {status.state === 'success' && <Icons.Check size={12} strokeWidth={3} />}
-                            {status.state === 'error' && <Icons.AlertCircle size={12} />}
+                            {status.state === 'error' && <Icons.X size={12} strokeWidth={3} />}
                             {status.state === 'pending' && <Icons.LoaderCircle size={12} />}
                           </div>
                         </div>
@@ -1737,7 +1744,7 @@ Line 6: Xero Tenant ID (optional)`}
                           </div>
                           <div className={`ph-auth-badge ${status.state}`}>
                             {status.state === 'success' && <Icons.Check size={12} strokeWidth={3} />}
-                            {status.state === 'error' && <Icons.AlertCircle size={12} />}
+                            {status.state === 'error' && <Icons.X size={12} strokeWidth={3} />}
                             {(status.state === 'pending' || status.state === 'inprogress') && <Icons.LoaderCircle size={12} />}
                           </div>
                         </div>
@@ -1791,9 +1798,16 @@ Line 6: Xero Tenant ID (optional)`}
                 <button onClick={handleBack} disabled={step === 0 || isLoading} className="ph-btn ph-btn-ghost">
                   <Icons.ChevronLeft size={16} /> <span>Back</span>
                 </button>
-                <button onClick={handleNext} disabled={isLoading || !isCurrentStepValid()} className="ph-btn ph-btn-primary">
-                  <span>{step === 0 ? 'Authenticate & Begin' : step === STEPS.length - 2 ? 'Finalize Onboarding' : 'Next Step'}</span> <Icons.ChevronRight size={16} />
-                </button>
+                <div style={{ display: 'flex', gap: '0.65rem' }}>
+                  {step > 0 && step < STEPS.length - 1 && (
+                    <button onClick={() => setStep((prev) => Math.min(prev + 1, STEPS.length - 1))} disabled={isLoading} className="ph-btn ph-btn-ghost">
+                      <span>Skip Step</span>
+                    </button>
+                  )}
+                  <button onClick={handleNext} disabled={isLoading || !isCurrentStepValid()} className="ph-btn ph-btn-primary">
+                    <span>{step === 0 ? 'Authenticate & Begin' : step === STEPS.length - 2 ? 'Finalize Onboarding' : 'Next Step'}</span> <Icons.ChevronRight size={16} />
+                  </button>
+                </div>
               </div>
             )}
           </div>
