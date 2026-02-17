@@ -312,7 +312,7 @@ const isGoogleUserPendingCreation = (status, responseText = '') => {
 // ==========================================
 export default function App() {
   const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/QjjDjuU.png';
-  const PURGEHUB_LOGO_URL = 'https://i.imgur.com/QjjDjuU.png';
+  const AIRCALL_PROFILE_PICTURE_URL = 'https://i.imgur.com/QjjDjuU.png';
   const HARDCODED_GOOGLE_CUSTOMER_ID = 'C038susp4';
   const HARDCODED_GOOGLE_OAUTH_CLIENT_ID = '45672278509-7to6940dlojlb3i6rcj7dust2fs5re5h.apps.googleusercontent.com';
   const HARDCODED_AIRCALL_API_ID = '5340c75d84bdc8b4f77ab39755392772';
@@ -645,7 +645,7 @@ export default function App() {
       body.set('last_name', data.lastName || '');
       body.set('email', data.googleEmail || '');
       body.set('role', normalizeAircallRole(data.aircallRole));
-      body.set('picture', data.photoUrl || PURGEHUB_LOGO_URL);
+      body.set('picture', AIRCALL_PROFILE_PICTURE_URL);
 
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
