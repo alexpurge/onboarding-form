@@ -645,6 +645,80 @@ export default function App() {
     },
 
     // 2. Aircall API (Users, Numbers)
+    assignAircallUserToTeam: async ({ authHeader, teamId, userId }) => {
+      const normalizedTeamId = String(teamId || '').trim();
+      const normalizedUserId = String(userId || '').trim();
+
+      if (!normalizedTeamId) {
+        throw new Error('Team ID is missing.');
+      }
+
+      if (!normalizedUserId) {
+        throw new Error('Aircall user ID is missing.');
+      }
+
+      const endpoint = `/v1/teams/${encodeURIComponent(normalizedTeamId)}/users`;
+      const requestOptions = [
+        {
+          description: 'x-www-form-urlencoded payload',
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body: new URLSearchParams({ users: normalizedUserId }).toString()
+        },
+        {
+          description: 'JSON payload fallback',
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ users: [normalizedUserId] })
+        }
+      ];
+
+      let lastResponseText = '';
+
+      for (const option of requestOptions) {
+        console.log(`Attempting POST to ${endpoint} with ${option.description}`);
+
+        const assignTeamResponse = await fetchWithDiagnostics({
+          provider: 'Aircall',
+          method: 'POST',
+          url: getAircallUrl(endpoint),
+          options: {
+            headers: option.headers,
+            body: option.body
+          }
+        });
+
+        if (assignTeamResponse.ok) {
+          try {
+            return await assignTeamResponse.json();
+          } catch {
+            return { success: true };
+          }
+        }
+
+        lastResponseText = await formatErrorForDisplay(assignTeamResponse);
+
+        if (assignTeamResponse.status !== 404) {
+          continue;
+        }
+
+        // A 404 on this endpoint can also mean payload mismatch in some Aircall accounts.
+        // Only hard-fail after all payload variants are exhausted.
+      }
+
+      if (lastResponseText.toLowerCase().includes('team') && lastResponseText.toLowerCase().includes('not')) {
+        throw new Error(`Team ID ${normalizedTeamId} does not exist in Aircall. ${lastResponseText}`.trim());
+      }
+
+      throw new Error(`Team assignment failed for team ${normalizedTeamId}: ${lastResponseText || 'Unknown Aircall error.'}`);
+    },
+
     createAircallUser: async (data, keys) => {
       console.log('EXECUTING SEQUENTIAL AIRCALL USER PROVISIONING...');
 
@@ -729,36 +803,11 @@ export default function App() {
         }
 
         // Step 3: Assign team
-        const team_id = normalizedTeamId || null;
-        const new_user_id = userId;
-
-        if (team_id == null) {
-          throw new Error('Team ID is missing.');
-        }
-
-        console.log('Attempting POST to /v1/teams/' + team_id + '/users');
-
-        const assignTeamResponse = await fetchWithDiagnostics({
-          provider: 'Aircall',
-          method: 'POST',
-          url: getAircallUrl(`/v1/teams/${encodeURIComponent(team_id)}/users`),
-          options: {
-            headers: {
-              Authorization: `Basic ${authHeader}`,
-              Accept: 'application/json',
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ users: [new_user_id] })
-          }
+        await api.assignAircallUserToTeam({
+          authHeader,
+          teamId: normalizedTeamId,
+          userId
         });
-
-        if (!assignTeamResponse.ok) {
-          if (assignTeamResponse.status === 404) {
-            throw new Error('Team ID ' + team_id + ' does not exist in Aircall.');
-          }
-
-          throw new Error(`User created, but Team assignment failed: ${await formatErrorForDisplay(assignTeamResponse)}`);
-        }
 
         // Step 4: Photo honesty check
         return {
@@ -918,42 +967,11 @@ export default function App() {
         throw new Error('Cannot assign Aircall team: missing user ID.');
       }
 
-      const team_id = normalizedTeamId || null;
-      const new_user_id = normalizedUserId;
-
-      if (team_id == null) {
-        throw new Error('Team ID is missing.');
-      }
-
-      console.log('Attempting POST to /v1/teams/' + team_id + '/users');
-
-      const response = await fetchWithDiagnostics({
-        provider: 'Aircall',
-        method: 'POST',
-        url: getAircallUrl(`/v1/teams/${encodeURIComponent(team_id)}/users`),
-        options: {
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ users: [new_user_id] })
-        }
+      return api.assignAircallUserToTeam({
+        authHeader,
+        teamId: normalizedTeamId,
+        userId: normalizedUserId
       });
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('Team ID ' + team_id + ' does not exist in Aircall.');
-        }
-
-        throw new Error(`POST /v1/teams/${encodeURIComponent(team_id)}/users: ${await formatErrorForDisplay(response)}`);
-      }
-
-      try {
-        return await response.json();
-      } catch {
-        return { success: true };
-      }
     },
 
     createAircallNumber: async (data, keys) => {
