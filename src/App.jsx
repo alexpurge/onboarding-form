@@ -668,25 +668,84 @@ export default function App() {
 
     addAircallUserToTeam: async ({ userId, teamId }, keys) => {
       const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-      const body = new URLSearchParams();
-      body.append('user_ids[]', String(userId));
-
-      const response = await fetchWithDiagnostics({
-        provider: 'Aircall',
-        method: 'POST',
-        url: getAircallUrl(`/v1/teams/${encodeURIComponent(teamId)}/users/add`),
-        options: {
+      const normalizedUserId = String(userId);
+      const normalizedTeamId = String(teamId);
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const attempts = [
+        {
+          method: 'POST',
+          path: `/v1/teams/${encodeURIComponent(normalizedTeamId)}/users/add`,
           headers: {
             Authorization: `Basic ${authHeader}`,
             Accept: 'application/json',
             'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
           },
-          body: body.toString()
+          body: (() => {
+            const form = new URLSearchParams();
+            form.append('user_ids[]', normalizedUserId);
+            return form.toString();
+          })()
+        },
+        {
+          method: 'POST',
+          path: `/v1/teams/${encodeURIComponent(normalizedTeamId)}/users/add`,
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body: (() => {
+            const form = new URLSearchParams();
+            form.append('users[]', normalizedUserId);
+            return form.toString();
+          })()
+        },
+        {
+          method: 'POST',
+          path: `/v1/users/${encodeURIComponent(normalizedUserId)}/teams`,
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body: (() => {
+            const form = new URLSearchParams();
+            form.append('team_id', normalizedTeamId);
+            return form.toString();
+          })()
         }
-      });
+      ];
 
-      if (!response.ok) throw new Error(await formatErrorForDisplay(response));
-      return response.json();
+      let lastError = 'Unknown Aircall team assignment failure.';
+
+      for (let retry = 1; retry <= 4; retry += 1) {
+        for (const attempt of attempts) {
+          const response = await fetchWithDiagnostics({
+            provider: 'Aircall',
+            method: attempt.method,
+            url: getAircallUrl(attempt.path),
+            options: {
+              headers: attempt.headers,
+              body: attempt.body
+            }
+          });
+
+          if (response.ok) return response.json();
+
+          const details = await formatErrorForDisplay(response);
+          lastError = `${attempt.method} ${attempt.path}: ${details}`;
+
+          if (response.status !== 404) {
+            throw new Error(lastError);
+          }
+        }
+
+        if (retry < 4) {
+          await wait(800 * retry);
+        }
+      }
+
+      throw new Error(lastError);
     },
 
     createAircallNumber: async (data, keys) => {
