@@ -334,6 +334,7 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [passwordResetStatus, setPasswordResetStatus] = useState('');
   const [googleUserKey, setGoogleUserKey] = useState('');
+  const [aircallUserId, setAircallUserId] = useState('');
   const [authStatus, setAuthStatus] = useState([
     { key: 'google', label: 'admin.google.com', state: 'pending', note: 'Waiting to authenticate' },
     { key: 'aircall', label: 'Aircall', state: 'pending', note: 'Waiting to authenticate' }
@@ -347,7 +348,7 @@ export default function App() {
   const [aircallRoles, setAircallRoles] = useState(DEFAULT_AIRCALL_ROLES);
   const [aircallTeams, setAircallTeams] = useState([]);
   const [aircallCatalogStatus, setAircallCatalogStatus] = useState('Waiting for Aircall authentication to load roles and teams.');
-  const progressSteps = 5;
+  const progressSteps = 6;
   const activeProgressStep = Math.min(Math.max(step, 1), progressSteps);
   const progressFill = ((activeProgressStep - 1) / (progressSteps - 1)) * 100;
 
@@ -355,7 +356,7 @@ export default function App() {
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', photoUrl: HARDCODED_PROFILE_PHOTO_URL, googleEmail: '', googlePassword: '',
     recoveryEmail: '', recoveryPhone: '',
-    aircallRole: 'agent', aircallTeam: '', aircallTeamScope: 'all',
+    aircallRole: 'agent', aircallTeam: '',
     acCountry: 'Australia', acType: 'Mobile', acRegion: '4', acName: '',
     flowImportTarget: '', flowAdjustSteps: false, flowUseSimilar: false, flowNodes: [],
     xeroJobTitle: '', xeroSalary: '', xeroPayrollCalendar: 'Fortnightly'
@@ -381,10 +382,11 @@ export default function App() {
     const labels = {
       0: 'Integration authentication',
       1: 'Google admin setup',
-      2: 'Aircall user provisioning',
-      3: 'Aircall number setup',
-      4: 'Aircall call flow setup',
-      5: 'Xero payroll setup'
+      2: 'Aircall role assignment',
+      3: 'Aircall team assignment',
+      4: 'Aircall number setup',
+      5: 'Aircall call flow setup',
+      6: 'Xero payroll setup'
     };
 
     return labels[stepNumber] || `Step ${stepNumber}`;
@@ -1392,10 +1394,11 @@ export default function App() {
 
   const isCurrentStepValid = () => {
     if (step === 2) {
-      const requiresSpecificSupervisorTeam = formData.aircallRole === 'supervisor' && formData.aircallTeamScope === 'specific';
-      if (!formData.aircallRole) return false;
-      if (requiresSpecificSupervisorTeam) return Boolean(formData.aircallTeam);
-      return true;
+      return Boolean(formData.aircallRole);
+    }
+
+    if (step === 3) {
+      return Boolean(formData.aircallTeam);
     }
 
     return true;
@@ -1447,7 +1450,8 @@ export default function App() {
 
       startProvision([
         { key: 'google-user', label: 'Create Google user', note: 'Preparing account creation request...' },
-        { key: 'google-recovery', label: 'Write recovery security info', note: 'Waiting for user to be created...' }
+        { key: 'google-recovery', label: 'Write recovery security info', note: 'Waiting for user to be created...' },
+        { key: 'aircall-user', label: 'Create Aircall user', note: 'Waiting for Google setup to complete...' }
       ]);
 
       try {
@@ -1494,40 +1498,12 @@ export default function App() {
 
         updateProvisionStatus('google-recovery', 'success', 'Recovery security info saved and verified.');
 
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        setStep(prev => prev + 1);
-      } catch (error) {
-        setProvisionStatus((prev) => prev.map((entry) => (
-          entry.state === 'success' ? entry : { ...entry, state: 'error', note: 'Failed. Check credentials and API scopes.' }
-        )));
-        const message = error instanceof Error ? error.message : 'Google provisioning failed.';
-        setProvisionError(message);
-        setGlobalError(message);
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      if (step === 2) {
-        const shouldAssignSpecificTeam = formData.aircallRole === 'supervisor' && formData.aircallTeamScope === 'specific';
-
-        startProvision([
-          { key: 'aircall-user', label: 'Create Aircall user', note: 'Preparing Aircall user creation request...' },
-          { key: 'aircall-role', label: 'Assign role', note: 'Waiting for Aircall user to be created...' },
-          { key: 'aircall-team', label: 'Assign specific team', note: shouldAssignSpecificTeam ? 'Waiting for role assignment...' : 'Skipped based on selected role/team scope.' },
-          { key: 'aircall-logo', label: 'Append logo to user profile', note: 'Waiting for previous steps...' }
-        ]);
-
-        updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user...');
+        updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user with synced Google identity...');
         const aircallCreateResult = await executeWithErrorLogging({
           source: 'Aircall',
           action: 'Create Aircall user',
-          stepNumber: 2,
-          meta: { email: formData.googleEmail, role: formData.aircallRole },
+          stepNumber: 1,
+          meta: { email: formData.googleEmail },
           task: async () => {
             const authHeader = btoa(`${parsedKeys.AIRCALL_API_ID}:${parsedKeys.AIRCALL_API_TOKEN}`);
             const createBody = new URLSearchParams();
@@ -1557,91 +1533,121 @@ export default function App() {
           }
         });
 
-        const aircallUserId = String(aircallCreateResult?.user?.id || '').trim();
-        if (!aircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
-        updateProvisionStatus('aircall-user', 'success', 'Aircall user created successfully.');
+        const createdAircallUserId = String(aircallCreateResult?.user?.id || '').trim();
+        if (!createdAircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
+        setAircallUserId(createdAircallUserId);
+        updateProvisionStatus('aircall-user', 'success', `Aircall user created successfully (ID: ${createdAircallUserId}).`);
 
-        updateProvisionStatus('aircall-role', 'inprogress', 'Waiting 5 seconds before assigning role...');
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        setStep(prev => prev + 1);
+      } catch (error) {
+        setProvisionStatus((prev) => prev.map((entry) => (
+          entry.state === 'success' ? entry : { ...entry, state: 'error', note: 'Failed. Check credentials and API scopes.' }
+        )));
+        const message = error instanceof Error ? error.message : 'Google provisioning failed.';
+        setProvisionError(message);
+        setGlobalError(message);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      if (step === 2) {
+        startProvision([
+          { key: 'aircall-role', label: 'Assign Aircall role', note: 'Preparing role assignment request...' }
+        ]);
+
+        const resolvedAircallUserId = aircallUserId || await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Locate Aircall user by identity for role assignment',
+          stepNumber: 2,
+          meta: { firstName: formData.firstName, lastName: formData.lastName, email: formData.googleEmail },
+          task: () => findAircallUserIdByIdentity({
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+            email: formData.googleEmail
+          }, parsedKeys)
+        });
+
+        setAircallUserId(resolvedAircallUserId);
+        updateProvisionStatus('aircall-role', 'inprogress', `Assigning role to Aircall user ID ${resolvedAircallUserId}...`);
+
         await executeWithErrorLogging({
           source: 'Aircall',
           action: 'Assign Aircall role',
           stepNumber: 2,
-          meta: { userId: aircallUserId, role: formData.aircallRole },
-          task: () => api.updateAircallUserRole({ userId: aircallUserId, role: formData.aircallRole }, parsedKeys)
+          meta: { userId: resolvedAircallUserId, role: formData.aircallRole },
+          task: () => api.updateAircallUserRole({ userId: resolvedAircallUserId, role: formData.aircallRole }, parsedKeys)
         });
+
         updateProvisionStatus('aircall-role', 'success', `Role assignment confirmed (${normalizeAircallRole(formData.aircallRole)}).`);
-
-        if (shouldAssignSpecificTeam) {
-          updateProvisionStatus('aircall-team', 'inprogress', 'Waiting 5 seconds, then locating user by first name, last name, and email...');
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-
-          const locatedAircallUserId = await executeWithErrorLogging({
-            source: 'Aircall',
-            action: 'Locate newly created Aircall user by identity',
-            stepNumber: 2,
-            meta: { firstName: formData.firstName, lastName: formData.lastName, email: formData.googleEmail },
-            task: () => findAircallUserIdByIdentity({
-              firstName: formData.firstName,
-              lastName: formData.lastName,
-              email: formData.googleEmail
-            }, parsedKeys)
-          });
-
-          await executeWithErrorLogging({
-            source: 'Aircall',
-            action: 'Assign Aircall team by located user identity',
-            stepNumber: 2,
-            meta: { userId: locatedAircallUserId, teamId: formData.aircallTeam },
-            task: () => api.addAircallUserToTeam({ userId: locatedAircallUserId, teamId: formData.aircallTeam }, parsedKeys)
-          });
-          updateProvisionStatus('aircall-team', 'success', 'Aircall supervisor added to selected team via post-create identity lookup.');
-        } else {
-          updateProvisionStatus('aircall-team', 'success', 'Team assignment skipped (only required for Supervisor + Specific teams).');
-        }
-
-        updateProvisionStatus('aircall-logo', 'inprogress', 'Waiting 5 seconds before appending profile logo...');
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        const aircallLogoResult = await executeWithErrorLogging({
-          source: 'Aircall',
-          action: 'Append Aircall profile logo',
-          stepNumber: 2,
-          meta: { userId: aircallUserId },
-          task: () => api.updateAircallUserPicture({ userId: aircallUserId, pictureUrl: AIRCALL_PROFILE_PICTURE_URL }, parsedKeys)
-        });
-        updateProvisionStatus('aircall-logo', 'success', aircallLogoResult?.skipped ? 'Aircall API does not support photo uploads.' : 'Aircall profile logo appended.');
-
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await new Promise((resolve) => setTimeout(resolve, 800));
       }
 
       if (step === 3) {
+        startProvision([
+          { key: 'aircall-team', label: 'Assign Aircall team', note: 'Preparing team assignment request...' }
+        ]);
+
+        const resolvedAircallUserId = aircallUserId || await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Locate Aircall user by identity for team assignment',
+          stepNumber: 3,
+          meta: { firstName: formData.firstName, lastName: formData.lastName, email: formData.googleEmail },
+          task: () => findAircallUserIdByIdentity({
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+            email: formData.googleEmail
+          }, parsedKeys)
+        });
+
+        setAircallUserId(resolvedAircallUserId);
+        updateProvisionStatus('aircall-team', 'inprogress', `Assigning team to Aircall user ID ${resolvedAircallUserId}...`);
+
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Assign Aircall team',
+          stepNumber: 3,
+          meta: { userId: resolvedAircallUserId, teamId: formData.aircallTeam },
+          task: () => api.addAircallUserToTeam({ userId: resolvedAircallUserId, teamId: formData.aircallTeam }, parsedKeys)
+        });
+
+        updateProvisionStatus('aircall-team', 'success', 'Aircall team assignment completed.');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+
+      if (step === 4) {
         setLoadingText('Securing Australian Mobile Number...');
         await executeWithErrorLogging({
           source: 'Aircall',
           action: 'Create Aircall number',
-          stepNumber: 3,
+          stepNumber: 4,
           meta: { country: formData.acCountry, type: formData.acType, name: formData.acName },
           task: () => api.createAircallNumber(formData, parsedKeys)
         });
       }
 
-      if (step === 4) {
+      if (step === 5) {
         setLoadingText('Publishing Smart Call Flow...');
         await executeWithErrorLogging({
           source: 'Aircall',
           action: 'Publish Aircall flow',
-          stepNumber: 4,
+          stepNumber: 5,
           meta: { nodeCount: formData.flowNodes.length },
           task: () => api.publishAircallFlow(formData, parsedKeys)
         });
       }
 
-      if (step === 5) {
+      if (step === 6) {
         setLoadingText('Registering in Xero Payroll...');
         await executeWithErrorLogging({
           source: 'Xero',
           action: 'Create payroll employee',
-          stepNumber: 5,
+          stepNumber: 6,
           meta: { jobTitle: formData.xeroJobTitle },
           task: () => api.createXeroEmployee(formData, parsedKeys)
         });
@@ -1649,7 +1655,7 @@ export default function App() {
 
       setStep(prev => prev + 1);
     } catch (error) {
-      if (step === 2) {
+      if (step === 2 || step === 3) {
         setProvisionStatus((prev) => prev.map((entry) => (
           entry.state === 'success' ? entry : { ...entry, state: 'error', note: 'Failed. Check credentials and Aircall permissions.' }
         )));
@@ -1804,44 +1810,17 @@ Line 6: Xero Tenant ID (optional)`}
   );
 
   const renderAircallUser = () => {
-    const isSupervisor = formData.aircallRole === 'supervisor';
-    const isAgent = formData.aircallRole === 'agent';
-    const usesSpecificTeams = formData.aircallTeamScope === 'specific';
-
     const roleDescription = {
       agent: 'Default role.',
-      supervisor: 'Agent role + access to team calls/reporting and basic settings.',
-      admin: 'Supervisor role + access to manage system settings, users, and numbers.'
-    };
-
-    const onRoleChange = (nextRole) => {
-      const normalizedRole = String(nextRole || '').trim().toLowerCase();
-      if (normalizedRole === 'supervisor') {
-        updateData('aircallRole', normalizedRole);
-        return;
-      }
-
-      setFormData((prev) => ({
-        ...prev,
-        aircallRole: normalizedRole,
-        aircallTeamScope: 'all',
-        aircallTeam: ''
-      }));
-    };
-
-    const onTeamScopeChange = (nextScope) => {
-      setFormData((prev) => ({
-        ...prev,
-        aircallTeamScope: nextScope,
-        aircallTeam: nextScope === 'specific' ? prev.aircallTeam : ''
-      }));
+      supervisor: 'Access to team calls/reporting and basic settings.',
+      admin: 'Manage system settings, users, and numbers.'
     };
 
     return (
       <div className="animate-fade-in">
         <div className="ph-title-wrap">
           <Icons.UserPlus className="ph-title-icon" />
-          <h2 className="ph-title">Aircall: Create User</h2>
+          <h2 className="ph-title">Aircall: Assign Role</h2>
         </div>
 
         <div className="ph-grid-2" style={{ alignItems: 'start', gap: '1.25rem' }}>
@@ -1849,18 +1828,20 @@ Line 6: Xero Tenant ID (optional)`}
             <Input label="First Name" value={formData.firstName} disabled={true} onChange={()=>{}} />
             <Input label="Last Name" value={formData.lastName} disabled={true} onChange={()=>{}} />
             <Input label="Email (Synced)" value={formData.googleEmail} disabled={true} onChange={()=>{}} />
+            <Input label="Aircall User ID" value={aircallUserId} disabled={true} onChange={()=>{}} placeholder="Created in Step 1" />
           </div>
 
           <div>
             <label className="ph-label" style={{ marginBottom: '0.65rem' }}>Roles</label>
             {aircallRoles.map((role) => {
-              const selected = formData.aircallRole === role.id;
+              const roleId = String(role.id || '').trim().toLowerCase();
+              const selected = formData.aircallRole === roleId;
               return (
                 <button
                   key={role.id}
                   type="button"
                   className="ph-btn"
-                  onClick={() => onRoleChange(role.id)}
+                  onClick={() => updateData('aircallRole', roleId)}
                   style={{
                     width: '100%',
                     justifyContent: 'space-between',
@@ -1872,51 +1853,53 @@ Line 6: Xero Tenant ID (optional)`}
                 >
                   <span>
                     <strong>{role.name}</strong>
-                    <span style={{ color: 'var(--text-muted)', marginLeft: '0.45rem' }}>{roleDescription[role.id] || ''}</span>
+                    <span style={{ color: 'var(--text-muted)', marginLeft: '0.45rem' }}>{roleDescription[roleId] || ''}</span>
                   </span>
                   <span>{selected ? '◉' : '○'}</span>
                 </button>
               );
             })}
-
-            {isSupervisor && (
-              <>
-                <label className="ph-label" style={{ marginTop: '0.75rem' }}>People management</label>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.8rem' }}>
-                  <button type="button" className="ph-btn" onClick={() => onTeamScopeChange('all')} style={{ flex: 1, background: formData.aircallTeamScope === 'all' ? 'var(--primary)' : 'var(--bg-input)', border: '1px solid var(--border-light)' }}>All teams</button>
-                  <button type="button" className="ph-btn" onClick={() => onTeamScopeChange('specific')} style={{ flex: 1, background: formData.aircallTeamScope === 'specific' ? 'var(--primary)' : 'var(--bg-input)', border: '1px solid var(--border-light)' }}>Specific teams</button>
-                </div>
-
-                <label className="ph-label">Number management</label>
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.8rem' }}>
-                  <button type="button" className="ph-btn" style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border-light)', opacity: 0.7 }} disabled>All numbers</button>
-                  <button type="button" className="ph-btn" style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border-light)', opacity: 0.7 }} disabled>Specific numbers</button>
-                </div>
-
-                {usesSpecificTeams && (
-                  <Select
-                    label="Assigned Teams"
-                    value={formData.aircallTeam}
-                    onChange={(v) => updateData('aircallTeam', v)}
-                    options={aircallTeams.map((team) => ({ value: team.id, label: team.name }))}
-                  />
-                )}
-              </>
-            )}
-
-            {isAgent && (
-              <p className="ph-auth-help">Agent role cannot assign a specific team during creation.</p>
-            )}
+            <p className="ph-auth-help">Step 2 only assigns role to the Aircall user created in Step 1.</p>
           </div>
         </div>
 
         <p className="ph-auth-help">{aircallCatalogStatus}</p>
-        {aircallTeams.length === 0 && (
-          <p className="ph-auth-error">No Aircall teams were returned. Create a team in Aircall, then authenticate again.</p>
-        )}
       </div>
     );
   };
+
+  const renderAircallTeam = () => (
+    <div className="animate-fade-in">
+      <div className="ph-title-wrap">
+        <Icons.UserPlus className="ph-title-icon" />
+        <h2 className="ph-title">Aircall: Assign Team</h2>
+      </div>
+
+      <div className="ph-grid-2" style={{ alignItems: 'start', gap: '1.25rem' }}>
+        <div>
+          <Input label="First Name" value={formData.firstName} disabled={true} onChange={()=>{}} />
+          <Input label="Last Name" value={formData.lastName} disabled={true} onChange={()=>{}} />
+          <Input label="Email (Synced)" value={formData.googleEmail} disabled={true} onChange={()=>{}} />
+          <Input label="Aircall User ID" value={aircallUserId} disabled={true} onChange={()=>{}} placeholder="Created in Step 1" />
+        </div>
+
+        <div>
+          <Select
+            label="Assigned Team"
+            value={formData.aircallTeam}
+            onChange={(v) => updateData('aircallTeam', v)}
+            options={aircallTeams.map((team) => ({ value: team.id, label: team.name }))}
+          />
+          <p className="ph-auth-help">Step 3 only assigns a team to the Aircall user created in Step 1.</p>
+        </div>
+      </div>
+
+      <p className="ph-auth-help">{aircallCatalogStatus}</p>
+      {aircallTeams.length === 0 && (
+        <p className="ph-auth-error">No Aircall teams were returned. Create a team in Aircall, then authenticate again.</p>
+      )}
+    </div>
+  );
 
   const renderAircallNumber = () => (
     <div className="animate-fade-in">
@@ -2131,8 +2114,8 @@ Line 6: Xero Tenant ID (optional)`}
             <Icons.Phone size={16} /> <span style={{ fontWeight: '600', fontSize: '0.875rem' }}>Aircall</span>
           </div>
           <ul style={{ fontSize: '0.875rem', color: 'var(--text-muted)', listStyle: 'none', lineHeight: '1.5' }}>
-            <li>• User Created ({formData.aircallRole})</li>
-            <li>• Number Active ({formData.acName})</li>
+            <li>• User Created + Role Assigned ({formData.aircallRole})</li>
+            <li>• Team Assigned + Number Active ({formData.acName})</li>
             <li>• Call Flow Deployed</li>
           </ul>
         </div>
@@ -2153,7 +2136,8 @@ Line 6: Xero Tenant ID (optional)`}
   const STEPS = [
     { title: "Auth", content: renderLogin },
     { title: "Google", content: renderGoogle },
-    { title: "AC User", content: renderAircallUser },
+    { title: "AC Role", content: renderAircallUser },
+    { title: "AC Team", content: renderAircallTeam },
     { title: "AC Number", content: renderAircallNumber },
     { title: "AC Flow", content: renderAircallFlow },
     { title: "Xero", content: renderXero },
@@ -2194,9 +2178,9 @@ Line 6: Xero Tenant ID (optional)`}
                       ))}
                     </div>
                   </div>
-                ) : step === 1 || step === 2 ? (
+                ) : step === 1 || step === 2 || step === 3 ? (
                   <div className="ph-provision-overlay-card">
-                    <h3 className="ph-provision-title">{step === 1 ? 'Provisioning admin.google.com' : 'Provisioning Aircall User'}</h3>
+                    <h3 className="ph-provision-title">{step === 1 ? 'Provisioning admin.google.com + Aircall' : step === 2 ? 'Assigning Aircall role' : 'Assigning Aircall team'}</h3>
                     <p className="ph-provision-subtitle">We only move forward when every task is complete.</p>
                     <div className="ph-provision-list">
                       {provisionStatus.map((status) => (
