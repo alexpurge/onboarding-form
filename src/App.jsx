@@ -716,6 +716,34 @@ export default function App() {
         throw new Error('Cannot assign Aircall role: missing user ID.');
       }
 
+      const getResponse = await fetchWithDiagnostics({
+        provider: 'Aircall',
+        method: 'GET',
+        url: getAircallUrl(`/v1/users/${encodeURIComponent(normalizedUserId)}`),
+        options: {
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json'
+          }
+        }
+      });
+
+      if (!getResponse.ok) {
+        throw new Error(`GET /v1/users/${encodeURIComponent(normalizedUserId)}: ${await formatErrorForDisplay(getResponse)}`);
+      }
+
+      const getPayload = await getResponse.json();
+      const existingUser = getPayload?.user;
+
+      if (!existingUser || typeof existingUser !== 'object') {
+        throw new Error('Cannot assign Aircall role: failed to retrieve full Aircall user profile.');
+      }
+
+      const updatedUserPayload = {
+        ...existingUser,
+        role: normalizedRole
+      };
+
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
         method: 'PUT',
@@ -726,7 +754,7 @@ export default function App() {
             Accept: 'application/json',
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ role: normalizedRole })
+          body: JSON.stringify(updatedUserPayload)
         }
       });
 
