@@ -402,6 +402,47 @@ export default function App() {
     return `${response.status} ${response.statusText}${details ? ` | ${details}` : ''}`.trim();
   };
 
+  const formatFetchFailure = ({ provider, method = 'GET', url, error }) => {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const runtimeOrigin = typeof window !== 'undefined' ? window.location.origin : 'unknown-origin';
+    const endpointOrigin = (() => {
+      try {
+        return new URL(url).origin;
+      } catch {
+        return 'unknown-endpoint-origin';
+      }
+    })();
+
+    const isCorsLikely = /failed to fetch|networkerror|load failed/i.test(rawMessage);
+    const hints = [
+      'The request did not reach an HTTP response, so this is not an API validation error.',
+      `Browser origin: ${runtimeOrigin}`,
+      `API origin: ${endpointOrigin}`,
+      endpointOrigin !== runtimeOrigin
+        ? 'Cross-origin request detected. Check CORS policy, browser privacy extensions, and corporate proxy filtering.'
+        : 'Same-origin request failed. Check network reachability or server availability.',
+      'Verify internet/DNS access to the API host and confirm TLS inspection/firewall rules allow the destination.'
+    ];
+
+    if (isCorsLikely) {
+      hints.unshift('Likely CORS/network block in browser (common with third-party APIs called directly from frontend code).');
+    }
+
+    return [
+      `${provider} ${method.toUpperCase()} ${url} failed before receiving a response.`,
+      `Browser error: ${rawMessage}`,
+      ...hints.map((hint) => `- ${hint}`)
+    ].join('\n');
+  };
+
+  const fetchWithDiagnostics = async ({ provider, method = 'GET', url, options = {} }) => {
+    try {
+      return await fetch(url, { method, ...options });
+    } catch (error) {
+      throw new Error(formatFetchFailure({ provider, method, url, error }));
+    }
+  };
+
   const pushErrorLog = ({ source, action, message, meta = {}, stepNumber = step }) => {
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -432,7 +473,11 @@ export default function App() {
   // ==========================================
   const api = {
     fetchPhotoAsBase64: async (photoUrl) => {
-      const photoResponse = await fetch(photoUrl);
+      const photoResponse = await fetchWithDiagnostics({
+        provider: 'Photo URL',
+        method: 'GET',
+        url: photoUrl
+      });
       if (!photoResponse.ok) throw new Error(`Unable to fetch profile photo: ${await formatErrorForDisplay(photoResponse)}`);
 
       const photoBlob = await photoResponse.blob();
@@ -610,14 +655,18 @@ export default function App() {
       body.set('email', data.googleEmail || '');
       body.set('role', normalizeAircallRole(data.aircallRole));
 
-      const response = await fetch("https://api.aircall.io/v1/users", {
-        method: "POST",
-        headers: {
-          "Authorization": `Basic ${authHeader}`,
-          "Accept": "application/json",
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
-        },
-        body: body.toString()
+      const response = await fetchWithDiagnostics({
+        provider: 'Aircall',
+        method: 'POST',
+        url: 'https://api.aircall.io/v1/users',
+        options: {
+          headers: {
+            "Authorization": `Basic ${authHeader}`,
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+          },
+          body: body.toString()
+        }
       });
 
       if (!response.ok) throw new Error(await formatErrorForDisplay(response));
@@ -626,7 +675,11 @@ export default function App() {
       if (data.photoUrl && result?.user?.id) {
         const userId = result.user.id;
         const auth = `Basic ${authHeader}`;
-        const photoResponse = await fetch(data.photoUrl);
+        const photoResponse = await fetchWithDiagnostics({
+          provider: 'Photo URL',
+          method: 'GET',
+          url: data.photoUrl
+        });
         if (!photoResponse.ok) throw new Error(`Unable to fetch profile photo: ${await formatErrorForDisplay(photoResponse)}`);
         const photoBlob = await photoResponse.blob();
         const filename = getPhotoUploadFilename(data.photoUrl, photoBlob.type);
@@ -634,13 +687,17 @@ export default function App() {
         const multipartBody = new FormData();
         multipartBody.append('picture', photoBlob, filename);
 
-        const uploadResponse = await fetch(`https://api.aircall.io/v1/users/${encodeURIComponent(userId)}/picture`, {
-          method: "POST",
-          headers: {
-            "Authorization": auth,
-            "Accept": "application/json"
-          },
-          body: multipartBody
+        const uploadResponse = await fetchWithDiagnostics({
+          provider: 'Aircall',
+          method: 'POST',
+          url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}/picture`,
+          options: {
+            headers: {
+              "Authorization": auth,
+              "Accept": "application/json"
+            },
+            body: multipartBody
+          }
         });
 
         if (!uploadResponse.ok) throw new Error(`Unable to upload Aircall profile photo: ${await formatErrorForDisplay(uploadResponse)}`);
@@ -654,14 +711,18 @@ export default function App() {
       const body = new URLSearchParams();
       body.append('user_ids[]', String(userId));
 
-      const response = await fetch(`https://api.aircall.io/v1/teams/${encodeURIComponent(teamId)}/users/add`, {
+      const response = await fetchWithDiagnostics({
+        provider: 'Aircall',
         method: 'POST',
-        headers: {
-          Authorization: `Basic ${authHeader}`,
-          Accept: 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-        },
-        body: body.toString()
+        url: `https://api.aircall.io/v1/teams/${encodeURIComponent(teamId)}/users/add`,
+        options: {
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body: body.toString()
+        }
       });
 
       if (!response.ok) throw new Error(await formatErrorForDisplay(response));
@@ -671,17 +732,21 @@ export default function App() {
     createAircallNumber: async (data, keys) => {
       console.log("EXECUTING POST TO AIRCALL NUMBERS API...");
       const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-      const response = await fetch("https://api.aircall.io/v1/numbers", {
-        method: "POST",
-        headers: {
-          "Authorization": `Basic ${authHeader}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          name: data.acName,
-          country: "AU",
-          type: data.acType.toLowerCase()
-        })
+      const response = await fetchWithDiagnostics({
+        provider: 'Aircall',
+        method: 'POST',
+        url: 'https://api.aircall.io/v1/numbers',
+        options: {
+          headers: {
+            "Authorization": `Basic ${authHeader}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: data.acName,
+            country: "AU",
+            type: data.acType.toLowerCase()
+          })
+        }
       });
 
       if (!response.ok) throw new Error(`Aircall number provisioning failed: ${await formatErrorForDisplay(response)}`);
@@ -862,7 +927,12 @@ export default function App() {
     let lastError = '';
 
     for (const check of authChecks) {
-      const response = await fetch(check.url, { method: 'GET', headers });
+      const response = await fetchWithDiagnostics({
+        provider: 'Aircall',
+        method: 'GET',
+        url: check.url,
+        options: { headers }
+      });
       if (response.ok) return;
 
       const details = await formatErrorForDisplay(response);
@@ -880,9 +950,11 @@ export default function App() {
 
     while (hasMore && page <= 100) {
       const separator = path.includes('?') ? '&' : '?';
-      const response = await fetch(`https://api.aircall.io${path}${separator}page=${page}&per_page=${perPage}`, {
+      const response = await fetchWithDiagnostics({
+        provider: 'Aircall',
         method: 'GET',
-        headers
+        url: `https://api.aircall.io${path}${separator}page=${page}&per_page=${perPage}`,
+        options: { headers }
       });
 
       if (!response.ok) throw new Error(await formatErrorForDisplay(response));
