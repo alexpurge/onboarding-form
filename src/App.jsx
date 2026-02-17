@@ -673,7 +673,27 @@ export default function App() {
       const normalizedUserId = String(userId);
       const normalizedTeamId = String(teamId);
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const parseAircallResponse = async (response) => {
+        const raw = await response.text();
+        if (!raw) return { success: true };
+
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return { success: true, raw };
+        }
+      };
       const attempts = [
+        {
+          method: 'POST',
+          path: `/v1/teams/${encodeURIComponent(normalizedTeamId)}/users`,
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ user_ids: [normalizedUserId] })
+        },
         {
           method: 'POST',
           path: `/v1/teams/${encodeURIComponent(normalizedTeamId)}/users/add`,
@@ -704,6 +724,16 @@ export default function App() {
         },
         {
           method: 'POST',
+          path: `/v1/teams/${encodeURIComponent(normalizedTeamId)}/users/add`,
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ user_ids: [normalizedUserId] })
+        },
+        {
+          method: 'POST',
           path: `/v1/users/${encodeURIComponent(normalizedUserId)}/teams`,
           headers: {
             Authorization: `Basic ${authHeader}`,
@@ -715,6 +745,14 @@ export default function App() {
             form.append('team_id', normalizedTeamId);
             return form.toString();
           })()
+        },
+        {
+          method: 'PUT',
+          path: `/v1/users/${encodeURIComponent(normalizedUserId)}/teams/${encodeURIComponent(normalizedTeamId)}`,
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json'
+          }
         }
       ];
 
@@ -732,12 +770,12 @@ export default function App() {
             }
           });
 
-          if (response.ok) return response.json();
+          if (response.ok) return parseAircallResponse(response);
 
           const details = await formatErrorForDisplay(response);
           lastError = `${attempt.method} ${attempt.path}: ${details}`;
 
-          if (response.status !== 404) {
+          if ([401, 403].includes(response.status)) {
             throw new Error(lastError);
           }
         }
