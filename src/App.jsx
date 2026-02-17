@@ -302,18 +302,6 @@ const normalizeAircallRole = (role) => {
   return AIRCALL_ROLE_MAP[normalizedRole] || AIRCALL_ROLE_MAP.agent;
 };
 
-const getPhotoUploadFilename = (photoUrl, mimeType = '') => {
-  const cleanPath = (photoUrl || '').split('?')[0].split('#')[0];
-  const urlFilename = cleanPath.split('/').pop() || '';
-
-  if (urlFilename.includes('.')) return urlFilename;
-
-  if (/png/i.test(mimeType)) return 'profile-photo.png';
-  if (/webp/i.test(mimeType)) return 'profile-photo.webp';
-  if (/gif/i.test(mimeType)) return 'profile-photo.gif';
-  return 'profile-photo.jpg';
-};
-
 const isGoogleUserPendingCreation = (status, responseText = '') => {
   if (status !== 412) return false;
   return /user creation is not complete/i.test(responseText) || /condition not met/i.test(responseText);
@@ -657,6 +645,7 @@ export default function App() {
       body.set('last_name', data.lastName || '');
       body.set('email', data.googleEmail || '');
       body.set('role', normalizeAircallRole(data.aircallRole));
+      body.set('picture', data.photoUrl || PURGEHUB_LOGO_URL);
 
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
@@ -673,40 +662,7 @@ export default function App() {
       });
 
       if (!response.ok) throw new Error(await formatErrorForDisplay(response));
-      const result = await response.json();
-
-      if (data.photoUrl && result?.user?.id) {
-        const userId = result.user.id;
-        const auth = `Basic ${authHeader}`;
-        const photoResponse = await fetchWithDiagnostics({
-          provider: 'Photo URL',
-          method: 'GET',
-          url: data.photoUrl
-        });
-        if (!photoResponse.ok) throw new Error(`Unable to fetch profile photo: ${await formatErrorForDisplay(photoResponse)}`);
-        const photoBlob = await photoResponse.blob();
-        const filename = getPhotoUploadFilename(data.photoUrl, photoBlob.type);
-
-        const multipartBody = new FormData();
-        multipartBody.append('picture', photoBlob, filename);
-
-        const uploadResponse = await fetchWithDiagnostics({
-          provider: 'Aircall',
-          method: 'POST',
-          url: getAircallUrl(`/v1/users/${encodeURIComponent(userId)}/picture`),
-          options: {
-            headers: {
-              "Authorization": auth,
-              "Accept": "application/json"
-            },
-            body: multipartBody
-          }
-        });
-
-        if (!uploadResponse.ok) throw new Error(`Unable to upload Aircall profile photo: ${await formatErrorForDisplay(uploadResponse)}`);
-      }
-
-      return result;
+      return response.json();
     },
 
     addAircallUserToTeam: async ({ userId, teamId }, keys) => {
