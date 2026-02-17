@@ -311,6 +311,7 @@ const isGoogleUserPendingCreation = (status, responseText = '') => {
 // 4. MAIN APPLICATION COMPONENT
 // ==========================================
 export default function App() {
+  const PURGEHUB_LOGO_URL = 'https://i.imgur.com/QjjDjuU.png';
   const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/QjjDjuU.png';
   const AIRCALL_PROFILE_PICTURE_URL = 'https://i.imgur.com/QjjDjuU.png';
   const HARDCODED_GOOGLE_CUSTOMER_ID = 'C038susp4';
