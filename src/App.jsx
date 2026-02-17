@@ -663,7 +663,47 @@ export default function App() {
       });
 
       if (!response.ok) throw new Error(await formatErrorForDisplay(response));
-      return response.json();
+      const result = await response.json();
+
+      if (result?.user?.id) {
+        try {
+          const avatarResponse = await fetchWithDiagnostics({
+            provider: 'Aircall Avatar URL',
+            method: 'GET',
+            url: AIRCALL_PROFILE_PICTURE_URL
+          });
+
+          if (!avatarResponse.ok) {
+            throw new Error(await formatErrorForDisplay(avatarResponse));
+          }
+
+          const avatarBlob = await avatarResponse.blob();
+          const formData = new FormData();
+          formData.append('picture', avatarBlob, 'profile.png');
+
+          const uploadResponse = await fetchWithDiagnostics({
+            provider: 'Aircall',
+            method: 'PUT',
+            url: getAircallUrl(`/v1/users/${encodeURIComponent(result.user.id)}`),
+            options: {
+              headers: {
+                Authorization: `Basic ${authHeader}`,
+                Accept: 'application/json'
+              },
+              body: formData
+            }
+          });
+
+          if (!uploadResponse.ok) {
+            throw new Error(await formatErrorForDisplay(uploadResponse));
+          }
+        } catch (avatarError) {
+          const message = avatarError instanceof Error ? avatarError.message : String(avatarError);
+          console.warn(`Aircall avatar upload skipped: ${message}`);
+        }
+      }
+
+      return result;
     },
 
     updateAircallUserRole: async ({ userId, role }, keys) => {
