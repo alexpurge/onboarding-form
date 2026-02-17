@@ -646,38 +646,126 @@ export default function App() {
 
     // 2. Aircall API (Users, Numbers)
     createAircallUser: async (data, keys) => {
-      console.log("EXECUTING POST TO AIRCALL API...");
+      console.log('EXECUTING SEQUENTIAL AIRCALL USER PROVISIONING...');
+
       const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-      const body = new URLSearchParams();
-      body.set('first_name', data.firstName || '');
-      body.set('last_name', data.lastName || '');
-      body.set('email', data.googleEmail || '');
+      const normalizedRole = normalizeAircallRole(data.aircallRole);
+      const normalizedTeamId = String(data.aircallTeam || '').trim();
 
-      const response = await fetchWithDiagnostics({
-        provider: 'Aircall',
-        method: 'POST',
-        url: getAircallUrl('/v1/users'),
-        options: {
-          headers: {
-            "Authorization": `Basic ${authHeader}`,
-            "Accept": "application/json",
-            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
-          },
-          body: body.toString()
+      try {
+        // Step 1: Create user
+        const createBody = new URLSearchParams();
+        createBody.set('first_name', data.firstName || '');
+        createBody.set('last_name', data.lastName || '');
+        createBody.set('email', data.googleEmail || '');
+
+        const createResponse = await fetchWithDiagnostics({
+          provider: 'Aircall',
+          method: 'POST',
+          url: getAircallUrl('/v1/users'),
+          options: {
+            headers: {
+              Authorization: `Basic ${authHeader}`,
+              Accept: 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+            },
+            body: createBody.toString()
+          }
+        });
+
+        if (!createResponse.ok) {
+          throw new Error(`User creation failed: ${await formatErrorForDisplay(createResponse)}`);
         }
-      });
 
-      if (!response.ok) throw new Error(await formatErrorForDisplay(response));
-      const result = await response.json();
-      const createdUserId = String(result?.user?.id || '').trim();
-      if (!createdUserId) {
-        throw new Error('Aircall user was created but no user ID was returned.');
+        const createPayload = await createResponse.json();
+        const userId = String(createPayload?.user?.id || '').trim();
+
+        if (!userId) {
+          throw new Error('User creation failed: Aircall API did not return a user ID.');
+        }
+
+        // Step 2: Assign role via fetch-edit-update
+        const fetchUserResponse = await fetchWithDiagnostics({
+          provider: 'Aircall',
+          method: 'GET',
+          url: getAircallUrl(`/v1/users/${encodeURIComponent(userId)}`),
+          options: {
+            headers: {
+              Authorization: `Basic ${authHeader}`,
+              Accept: 'application/json'
+            }
+          }
+        });
+
+        if (!fetchUserResponse.ok) {
+          throw new Error(`User created, but Role assignment failed: ${await formatErrorForDisplay(fetchUserResponse)}`);
+        }
+
+        const fetchUserPayload = await fetchUserResponse.json();
+        const userObject = fetchUserPayload?.user;
+
+        if (!userObject || typeof userObject !== 'object') {
+          throw new Error('User created, but Role assignment failed: invalid full user payload from Aircall API.');
+        }
+
+        userObject.role = normalizedRole;
+
+        const updateRoleResponse = await fetchWithDiagnostics({
+          provider: 'Aircall',
+          method: 'PUT',
+          url: getAircallUrl(`/v1/users/${encodeURIComponent(userId)}`),
+          options: {
+            headers: {
+              Authorization: `Basic ${authHeader}`,
+              Accept: 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(userObject)
+          }
+        });
+
+        if (!updateRoleResponse.ok) {
+          throw new Error(`User created, but Role assignment failed: ${await formatErrorForDisplay(updateRoleResponse)}`);
+        }
+
+        // Step 3: Assign team
+        if (!normalizedTeamId) {
+          throw new Error('User created, but Team assignment failed: missing team ID.');
+        }
+
+        const assignTeamResponse = await fetchWithDiagnostics({
+          provider: 'Aircall',
+          method: 'POST',
+          url: getAircallUrl(`/v1/teams/${encodeURIComponent(normalizedTeamId)}/users`),
+          options: {
+            headers: {
+              Authorization: `Basic ${authHeader}`,
+              Accept: 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ user_id: userId })
+          }
+        });
+
+        if (!assignTeamResponse.ok) {
+          throw new Error(`User created, but Team assignment failed: ${await formatErrorForDisplay(assignTeamResponse)}`);
+        }
+
+        // Step 4: Photo honesty check
+        return {
+          ...createPayload,
+          createdUserId: userId,
+          role: normalizedRole,
+          team_id: normalizedTeamId,
+          photo_uploaded: false,
+          message: 'Aircall API does not support photo uploads.'
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const apiError = new Error(message);
+        apiError.status = 500;
+        throw apiError;
       }
-
-      return {
-        ...result,
-        createdUserId
-      };
     },
 
     getAircallUserById: async ({ userId }, keys) => {
@@ -1320,53 +1408,9 @@ export default function App() {
         if (!aircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
 
         updateProvisionStatus('aircall-user', 'success', 'Aircall user created successfully.');
-
-        updateProvisionStatus('aircall-role', 'inprogress', `Assigning selected role: ${formData.aircallRole}...`);
-        await executeWithErrorLogging({
-          source: 'Aircall',
-          action: 'Assign selected Aircall role',
-          stepNumber: 2,
-          meta: { userId: aircallUserId, role: formData.aircallRole },
-          task: () => api.updateAircallUserRole({
-            userId: aircallUserId,
-            role: formData.aircallRole
-          }, parsedKeys)
-        });
         updateProvisionStatus('aircall-role', 'success', `Role assignment confirmed (${normalizeAircallRole(formData.aircallRole)}).`);
-
-        updateProvisionStatus('aircall-team', 'inprogress', 'Assigning Aircall user to selected team...');
-        try {
-          await executeWithErrorLogging({
-            source: 'Aircall',
-            action: 'Assign Aircall user to team',
-            stepNumber: 2,
-            meta: { userId: aircallUserId, teamId: formData.aircallTeam },
-            task: () => api.addAircallUserToTeam({ userId: aircallUserId, teamId: formData.aircallTeam }, parsedKeys)
-          });
-
-          updateProvisionStatus('aircall-team', 'success', 'Aircall user added to selected team.');
-        } catch (error) {
-          const teamAssignmentMessage = error instanceof Error ? error.message : String(error);
-          console.error('Aircall team assignment failed:', teamAssignmentMessage);
-          updateProvisionStatus('aircall-team', 'error', 'Team assignment failed. Continuing without blocking user creation.');
-        }
-
-        updateProvisionStatus('aircall-logo', 'inprogress', 'Appending profile logo to Aircall user...');
-        const pictureResult = await executeWithErrorLogging({
-          source: 'Aircall',
-          action: 'Append logo to Aircall user profile',
-          stepNumber: 2,
-          meta: { userId: aircallUserId, pictureUrl: formData.photoUrl || AIRCALL_PROFILE_PICTURE_URL },
-          task: () => api.updateAircallUserPicture({
-            userId: aircallUserId,
-            pictureUrl: formData.photoUrl || AIRCALL_PROFILE_PICTURE_URL
-          }, parsedKeys)
-        });
-        updateProvisionStatus(
-          'aircall-logo',
-          'success',
-          pictureResult?.skipped ? 'API does not support avatar updates via URL. Skipped logo update.' : 'Profile logo appended successfully.'
-        );
+        updateProvisionStatus('aircall-team', 'success', 'Aircall user added to selected team.');
+        updateProvisionStatus('aircall-logo', 'success', aircallResult?.message || 'Aircall API does not support photo uploads.');
 
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
