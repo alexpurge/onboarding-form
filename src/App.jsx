@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import purgehubLogo from './assets/purgehub-logo.svg';
 
 // ==========================================
 // 1. BESPOKE GROUND-UP STYLESHEET
@@ -311,8 +312,8 @@ const isGoogleUserPendingCreation = (status, responseText = '') => {
 // 4. MAIN APPLICATION COMPONENT
 // ==========================================
 export default function App() {
-  const HARDCODED_PROFILE_PHOTO_URL = 'https://i.imgur.com/QjjDjuU.png';
-  const PURGEHUB_LOGO_URL = 'https://i.imgur.com/QjjDjuU.png';
+  const HARDCODED_PROFILE_PHOTO_URL = purgehubLogo;
+  const PURGEHUB_LOGO_URL = purgehubLogo;
   const HARDCODED_GOOGLE_CUSTOMER_ID = 'C038susp4';
   const HARDCODED_GOOGLE_OAUTH_CLIENT_ID = '45672278509-7to6940dlojlb3i6rcj7dust2fs5re5h.apps.googleusercontent.com';
   const HARDCODED_AIRCALL_API_ID = '5340c75d84bdc8b4f77ab39755392772';
@@ -1341,7 +1342,7 @@ Line 6: Xero Tenant ID (optional)`}
       </div>
       
       <div className="ph-input-group">
-        <label className="ph-label">Profile Photo URL (Imgur)</label>
+        <label className="ph-label">Profile Photo URL (Fixed company logo)</label>
         <div style={{ position: 'relative' }}>
           <div style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#666' }}>
             <Icons.Upload size={16} />
