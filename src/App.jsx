@@ -184,6 +184,9 @@ const IMPORT_NUMBERS = [
   { id: 'n2', number: '+61 411 111 111', name: 'Support Hotline' }
 ];
 
+const AIRCALL_PROXY_BASE = '/api/aircall';
+const getAircallUrl = (path) => `${AIRCALL_PROXY_BASE}${path}`;
+
 const Input = ({ label, value, onChange, placeholder, disabled, type = "text" }) => (
   <div className="ph-input-group">
     <label className="ph-label">{label}</label>
@@ -658,7 +661,7 @@ export default function App() {
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
         method: 'POST',
-        url: 'https://api.aircall.io/v1/users',
+        url: getAircallUrl('/v1/users'),
         options: {
           headers: {
             "Authorization": `Basic ${authHeader}`,
@@ -690,7 +693,7 @@ export default function App() {
         const uploadResponse = await fetchWithDiagnostics({
           provider: 'Aircall',
           method: 'POST',
-          url: `https://api.aircall.io/v1/users/${encodeURIComponent(userId)}/picture`,
+          url: getAircallUrl(`/v1/users/${encodeURIComponent(userId)}/picture`),
           options: {
             headers: {
               "Authorization": auth,
@@ -714,7 +717,7 @@ export default function App() {
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
         method: 'POST',
-        url: `https://api.aircall.io/v1/teams/${encodeURIComponent(teamId)}/users/add`,
+        url: getAircallUrl(`/v1/teams/${encodeURIComponent(teamId)}/users/add`),
         options: {
           headers: {
             Authorization: `Basic ${authHeader}`,
@@ -735,7 +738,7 @@ export default function App() {
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
         method: 'POST',
-        url: 'https://api.aircall.io/v1/numbers',
+        url: getAircallUrl('/v1/numbers'),
         options: {
           headers: {
             "Authorization": `Basic ${authHeader}`,
@@ -920,8 +923,8 @@ export default function App() {
     const { authHeader } = getAircallCredentials(keys);
     const headers = { Authorization: `Basic ${authHeader}` };
     const authChecks = [
-      { label: '/v1/users/me', url: 'https://api.aircall.io/v1/users/me' },
-      { label: '/v1/users', url: 'https://api.aircall.io/v1/users?page=1&per_page=1' }
+      { label: '/v1/users/me', url: getAircallUrl('/v1/users/me') },
+      { label: '/v1/users', url: getAircallUrl('/v1/users?page=1&per_page=1') }
     ];
 
     let lastError = '';
@@ -953,7 +956,7 @@ export default function App() {
       const response = await fetchWithDiagnostics({
         provider: 'Aircall',
         method: 'GET',
-        url: `https://api.aircall.io${path}${separator}page=${page}&per_page=${perPage}`,
+        url: `${getAircallUrl(path)}${separator}page=${page}&per_page=${perPage}`,
         options: { headers }
       });
 
