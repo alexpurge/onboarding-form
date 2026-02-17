@@ -1432,21 +1432,76 @@ export default function App() {
         ]);
 
         updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user...');
-        const aircallResult = await executeWithErrorLogging({
+        const aircallCreateResult = await executeWithErrorLogging({
           source: 'Aircall',
           action: 'Create Aircall user',
           stepNumber: 2,
           meta: { email: formData.googleEmail, role: formData.aircallRole },
-          task: () => api.createAircallUser(formData, parsedKeys)
+          task: async () => {
+            const authHeader = btoa(`${parsedKeys.AIRCALL_API_ID}:${parsedKeys.AIRCALL_API_TOKEN}`);
+            const createBody = new URLSearchParams();
+            createBody.set('first_name', formData.firstName || '');
+            createBody.set('last_name', formData.lastName || '');
+            createBody.set('email', formData.googleEmail || '');
+
+            const createResponse = await fetchWithDiagnostics({
+              provider: 'Aircall',
+              method: 'POST',
+              url: getAircallUrl('/v1/users'),
+              options: {
+                headers: {
+                  Authorization: `Basic ${authHeader}`,
+                  Accept: 'application/json',
+                  'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+                },
+                body: createBody.toString()
+              }
+            });
+
+            if (!createResponse.ok) {
+              throw new Error(`User creation failed: ${await formatErrorForDisplay(createResponse)}`);
+            }
+
+            return createResponse.json();
+          }
         });
 
-        const aircallUserId = aircallResult?.createdUserId || aircallResult?.user?.id;
+        const aircallUserId = String(aircallCreateResult?.user?.id || '').trim();
         if (!aircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
-
         updateProvisionStatus('aircall-user', 'success', 'Aircall user created successfully.');
+
+        updateProvisionStatus('aircall-role', 'inprogress', 'Waiting 5 seconds before assigning role...');
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Assign Aircall role',
+          stepNumber: 2,
+          meta: { userId: aircallUserId, role: formData.aircallRole },
+          task: () => api.updateAircallUserRole({ userId: aircallUserId, role: formData.aircallRole }, parsedKeys)
+        });
         updateProvisionStatus('aircall-role', 'success', `Role assignment confirmed (${normalizeAircallRole(formData.aircallRole)}).`);
+
+        updateProvisionStatus('aircall-team', 'inprogress', 'Waiting 5 seconds before assigning team...');
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Assign Aircall team',
+          stepNumber: 2,
+          meta: { userId: aircallUserId, teamId: formData.aircallTeam },
+          task: () => api.addAircallUserToTeam({ userId: aircallUserId, teamId: formData.aircallTeam }, parsedKeys)
+        });
         updateProvisionStatus('aircall-team', 'success', 'Aircall user added to selected team.');
-        updateProvisionStatus('aircall-logo', 'success', aircallResult?.message || 'Aircall API does not support photo uploads.');
+
+        updateProvisionStatus('aircall-logo', 'inprogress', 'Waiting 5 seconds before appending profile logo...');
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const aircallLogoResult = await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Append Aircall profile logo',
+          stepNumber: 2,
+          meta: { userId: aircallUserId },
+          task: () => api.updateAircallUserPicture({ userId: aircallUserId, pictureUrl: AIRCALL_PROFILE_PICTURE_URL }, parsedKeys)
+        });
+        updateProvisionStatus('aircall-logo', 'success', aircallLogoResult?.skipped ? 'Aircall API does not support photo uploads.' : 'Aircall profile logo appended.');
 
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
