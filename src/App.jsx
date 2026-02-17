@@ -42,6 +42,7 @@ const customStyles = `
   .ph-card { background-color: var(--bg-card); border: 1px solid var(--border); border-radius: 1rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; position: relative; min-height: 0; flex: 1; display: flex; flex-direction: column; }
   .ph-card-content { padding: 2rem; flex: 1; }
   .ph-card-footer { padding: 1.25rem 2rem; border-top: 1px solid var(--border); background-color: #0f0f0f; display: flex; justify-content: space-between; align-items: center; }
+  .ph-error-log-wrap { padding: 0 2rem 1.25rem; }
 
   .ph-btn { display: inline-flex; items-center; justify-content: center; gap: 0.5rem; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease; border: none; outline: none; }
   .ph-btn:focus, .ph-btn:focus-visible { outline: none; }
@@ -1790,7 +1791,6 @@ Line 6: Xero Tenant ID (optional)`}
             <div className="ph-card-content">
               {STEPS[step].content()}
               {globalError && <p className="ph-provision-error">{globalError}</p>}
-              {renderErrorPanel()}
             </div>
 
             {step < STEPS.length - 1 && (
@@ -1810,6 +1810,8 @@ Line 6: Xero Tenant ID (optional)`}
                 </div>
               </div>
             )}
+
+            <div className="ph-error-log-wrap">{renderErrorPanel()}</div>
           </div>
         </div>
       </div>
