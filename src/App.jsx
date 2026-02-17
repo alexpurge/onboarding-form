@@ -301,7 +301,12 @@ const AIRCALL_ROLE_MAP = {
 
 const normalizeAircallRole = (role) => {
   const normalizedRole = String(role || '').trim().toLowerCase();
-  return AIRCALL_ROLE_MAP[normalizedRole] || AIRCALL_ROLE_MAP.agent;
+  const mappedRole = AIRCALL_ROLE_MAP[normalizedRole];
+  if (!mappedRole) {
+    throw new Error(`Unsupported Aircall role selected: ${role}`);
+  }
+
+  return mappedRole;
 };
 
 const isGoogleUserPendingCreation = (status, responseText = '') => {
@@ -664,46 +669,42 @@ export default function App() {
 
       if (!response.ok) throw new Error(await formatErrorForDisplay(response));
       const result = await response.json();
-
-      if (result?.user?.id) {
-        try {
-          const avatarResponse = await fetchWithDiagnostics({
-            provider: 'Aircall Avatar URL',
-            method: 'GET',
-            url: AIRCALL_PROFILE_PICTURE_URL
-          });
-
-          if (!avatarResponse.ok) {
-            throw new Error(await formatErrorForDisplay(avatarResponse));
-          }
-
-          const avatarBlob = await avatarResponse.blob();
-          const formData = new FormData();
-          formData.append('picture', avatarBlob, 'profile.png');
-
-          const uploadResponse = await fetchWithDiagnostics({
-            provider: 'Aircall',
-            method: 'PUT',
-            url: getAircallUrl(`/v1/users/${encodeURIComponent(result.user.id)}`),
-            options: {
-              headers: {
-                Authorization: `Basic ${authHeader}`,
-                Accept: 'application/json'
-              },
-              body: formData
-            }
-          });
-
-          if (!uploadResponse.ok) {
-            throw new Error(await formatErrorForDisplay(uploadResponse));
-          }
-        } catch (avatarError) {
-          const message = avatarError instanceof Error ? avatarError.message : String(avatarError);
-          console.warn(`Aircall avatar upload skipped: ${message}`);
-        }
+      const createdUserId = String(result?.user?.id || '').trim();
+      if (!createdUserId) {
+        throw new Error('Aircall user was created but no user ID was returned.');
       }
 
-      return result;
+      return {
+        ...result,
+        createdUserId
+      };
+    },
+
+    getAircallUserById: async ({ userId }, keys) => {
+      const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
+      const normalizedUserId = String(userId || '').trim();
+
+      if (!normalizedUserId) {
+        throw new Error('Cannot verify Aircall user: missing user ID.');
+      }
+
+      const response = await fetchWithDiagnostics({
+        provider: 'Aircall',
+        method: 'GET',
+        url: getAircallUrl(`/v1/users/${encodeURIComponent(normalizedUserId)}`),
+        options: {
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json'
+          }
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(await formatErrorForDisplay(response));
+      }
+
+      return response.json();
     },
 
     updateAircallUserRole: async ({ userId, role }, keys) => {
@@ -714,6 +715,9 @@ export default function App() {
       if (!normalizedUserId) {
         throw new Error('Cannot assign Aircall role: missing user ID.');
       }
+
+      const rolePayload = { role: normalizedRole };
+      console.info('Aircall role assignment payload:', rolePayload);
 
       const attempts = [
         {
@@ -801,83 +805,62 @@ export default function App() {
         throw new Error('Cannot append Aircall profile logo: missing picture URL.');
       }
 
-      const attempts = [
-        {
-          method: 'PUT',
-          path: `/v1/users/${encodeURIComponent(normalizedUserId)}`,
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body: (() => {
-            const form = new URLSearchParams();
-            form.set('picture', normalizedPictureUrl);
-            return form.toString();
-          })()
-        },
-        {
-          method: 'PATCH',
-          path: `/v1/users/${encodeURIComponent(normalizedUserId)}`,
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body: (() => {
-            const form = new URLSearchParams();
-            form.set('picture', normalizedPictureUrl);
-            return form.toString();
-          })()
-        },
-        {
-          method: 'PUT',
-          path: `/v1/users/${encodeURIComponent(normalizedUserId)}`,
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ picture: normalizedPictureUrl })
-        }
-      ];
+      const imageResponse = await fetchWithDiagnostics({
+        provider: 'Aircall Avatar URL',
+        method: 'GET',
+        url: normalizedPictureUrl
+      });
 
-      let lastError = 'Unable to append Aircall profile logo.';
-
-      for (const attempt of attempts) {
-        const response = await fetchWithDiagnostics({
-          provider: 'Aircall',
-          method: attempt.method,
-          url: getAircallUrl(attempt.path),
-          options: {
-            headers: attempt.headers,
-            body: attempt.body
-          }
-        });
-
-        if (response.ok) {
-          try {
-            return await response.json();
-          } catch {
-            return { success: true };
-          }
-        }
-
-        const details = await formatErrorForDisplay(response);
-        lastError = `${attempt.method} ${attempt.path}: ${details}`;
-
-        if ([401, 403].includes(response.status)) {
-          throw new Error(lastError);
-        }
+      if (!imageResponse.ok) {
+        throw new Error(await formatErrorForDisplay(imageResponse));
       }
 
-      throw new Error(lastError);
+      const imageArrayBuffer = await imageResponse.arrayBuffer();
+      const imageBlob = new Blob([imageArrayBuffer], { type: imageResponse.headers.get('content-type') || 'image/png' });
+      const formData = new FormData();
+      formData.append('picture', imageBlob, 'profile.png');
+
+      const response = await fetchWithDiagnostics({
+        provider: 'Aircall',
+        method: 'PUT',
+        url: getAircallUrl(`/v1/users/${encodeURIComponent(normalizedUserId)}`),
+        options: {
+          headers: {
+            Authorization: `Basic ${authHeader}`,
+            Accept: 'application/json',
+            'Content-Type': 'multipart/form-data'
+          },
+          body: formData
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`PUT /v1/users/${encodeURIComponent(normalizedUserId)}: ${await formatErrorForDisplay(response)}`);
+      }
+
+      try {
+        return await response.json();
+      } catch {
+        return { success: true };
+      }
     },
 
     addAircallUserToTeam: async ({ userId, teamId }, keys) => {
       const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-      const normalizedUserId = String(userId);
-      const normalizedTeamId = String(teamId);
+      const normalizedUserId = String(userId || '').trim();
+      const normalizedTeamId = String(teamId || '').trim();
+
+      if (!normalizedUserId) {
+        throw new Error('Cannot assign Aircall team: missing user ID.');
+      }
+
+      if (!normalizedTeamId) {
+        throw new Error('Cannot assign Aircall team: missing team ID.');
+      }
+
+      if (!/^\d+$/.test(normalizedTeamId)) {
+        throw new Error(`Cannot assign Aircall team: invalid team ID "${teamId}".`);
+      }
       const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const parseAircallResponse = async (response) => {
         const raw = await response.text();
@@ -1446,9 +1429,9 @@ export default function App() {
       if (step === 2) {
         startProvision([
           { key: 'aircall-user', label: 'Create Aircall user', note: 'Preparing Aircall user creation request...' },
-          { key: 'aircall-logo', label: 'Append logo to user profile', note: 'Waiting for Aircall user to be created...' },
           { key: 'aircall-role', label: 'Assign role', note: 'Waiting for Aircall user to be created...' },
-          { key: 'aircall-team', label: 'Assign specific team', note: 'Waiting for role assignment...' }
+          { key: 'aircall-team', label: 'Assign specific team', note: 'Waiting for role assignment...' },
+          { key: 'aircall-logo', label: 'Append logo to user profile', note: 'Waiting for team assignment...' }
         ]);
 
         updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user...');
@@ -1460,22 +1443,10 @@ export default function App() {
           task: () => api.createAircallUser(formData, parsedKeys)
         });
 
-        const aircallUserId = aircallResult?.user?.id;
+        const aircallUserId = aircallResult?.createdUserId || aircallResult?.user?.id;
         if (!aircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
 
         updateProvisionStatus('aircall-user', 'success', 'Aircall user created successfully.');
-        updateProvisionStatus('aircall-logo', 'inprogress', 'Appending profile logo to Aircall user...');
-        await executeWithErrorLogging({
-          source: 'Aircall',
-          action: 'Append logo to Aircall user profile',
-          stepNumber: 2,
-          meta: { userId: aircallUserId, pictureUrl: formData.photoUrl || AIRCALL_PROFILE_PICTURE_URL },
-          task: () => api.updateAircallUserPicture({
-            userId: aircallUserId,
-            pictureUrl: formData.photoUrl || AIRCALL_PROFILE_PICTURE_URL
-          }, parsedKeys)
-        });
-        updateProvisionStatus('aircall-logo', 'success', 'Profile logo appended successfully.');
 
         updateProvisionStatus('aircall-role', 'inprogress', `Assigning selected role: ${formData.aircallRole}...`);
         await executeWithErrorLogging({
@@ -1493,6 +1464,13 @@ export default function App() {
         updateProvisionStatus('aircall-team', 'inprogress', 'Assigning Aircall user to selected team...');
         await executeWithErrorLogging({
           source: 'Aircall',
+          action: 'Verify Aircall user before team assignment',
+          stepNumber: 2,
+          meta: { userId: aircallUserId },
+          task: () => api.getAircallUserById({ userId: aircallUserId }, parsedKeys)
+        });
+        await executeWithErrorLogging({
+          source: 'Aircall',
           action: 'Assign Aircall user to team',
           stepNumber: 2,
           meta: { userId: aircallUserId, teamId: formData.aircallTeam },
@@ -1500,6 +1478,19 @@ export default function App() {
         });
 
         updateProvisionStatus('aircall-team', 'success', 'Aircall user added to selected team.');
+
+        updateProvisionStatus('aircall-logo', 'inprogress', 'Appending profile logo to Aircall user...');
+        await executeWithErrorLogging({
+          source: 'Aircall',
+          action: 'Append logo to Aircall user profile',
+          stepNumber: 2,
+          meta: { userId: aircallUserId, pictureUrl: formData.photoUrl || AIRCALL_PROFILE_PICTURE_URL },
+          task: () => api.updateAircallUserPicture({
+            userId: aircallUserId,
+            pictureUrl: formData.photoUrl || AIRCALL_PROFILE_PICTURE_URL
+          }, parsedKeys)
+        });
+        updateProvisionStatus('aircall-logo', 'success', 'Profile logo appended successfully.');
 
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
