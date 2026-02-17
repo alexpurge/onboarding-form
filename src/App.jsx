@@ -442,6 +442,69 @@ export default function App() {
     }
   };
 
+  const handleCreateUser = async (formData) => {
+    const apiId = formData.aircallApiId || parsedKeys.AIRCALL_API_ID || HARDCODED_AIRCALL_API_ID;
+    const apiToken = formData.aircallApiToken || parsedKeys.AIRCALL_API_TOKEN;
+    const teamId = String(formData.aircallTeam || '').trim();
+
+    if (!apiId || !apiToken) throw new Error('Aircall API credentials are required to create a user.');
+    if (!teamId) throw new Error('A team ID is required to assign the new user.');
+
+    const authHeader = `Basic ${btoa(`${apiId}:${apiToken}`)}`;
+    const createUserBody = {
+      email: formData.googleEmail,
+      first_name: formData.firstName,
+      last_name: formData.lastName,
+      ...(formData.aircallRole === 'admin' ? { admin: true } : {}),
+      ...(formData.aircallRole === 'supervisor' ? { supervisor: true } : {})
+    };
+
+    const createUserResponse = await fetch('https://api.aircall.io/v1/users', {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(createUserBody)
+    });
+
+    if (!createUserResponse.ok) {
+      throw new Error(`User creation failed: ${await formatErrorForDisplay(createUserResponse)}`);
+    }
+
+    const createUserPayload = await createUserResponse.json();
+    const userId = String(createUserPayload?.user?.id || '').trim();
+
+    if (!userId) throw new Error('User creation failed: Aircall API did not return a user ID.');
+
+    console.log('New Aircall User ID:', userId);
+
+    const assignTeamResponse = await fetch(`https://api.aircall.io/v1/teams/${encodeURIComponent(teamId)}/users`, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ id: userId })
+    });
+
+    if (!assignTeamResponse.ok) {
+      throw new Error(`Team assignment failed: ${await formatErrorForDisplay(assignTeamResponse)}`);
+    }
+
+    const assignTeamPayload = await assignTeamResponse.json().catch(() => ({}));
+
+    return {
+      success: true,
+      userId,
+      teamId,
+      user: createUserPayload?.user || null,
+      teamAssignment: assignTeamPayload
+    };
+  };
+
   const pushErrorLog = ({ source, action, message, meta = {}, stepNumber = step }) => {
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
