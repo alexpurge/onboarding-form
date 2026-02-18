@@ -372,8 +372,7 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [countrySearch, setCountrySearch] = useState('Australia');
   const [aircallRoles, setAircallRoles] = useState(DEFAULT_AIRCALL_ROLES);
-  const [aircallTeams, setAircallTeams] = useState([]);
-  const [_aircallCatalogStatus, setAircallCatalogStatus] = useState('Waiting for Aircall authentication to load roles and teams.');
+  const [_aircallCatalogStatus, setAircallCatalogStatus] = useState('Waiting for Aircall authentication to load roles.');
   const progressSteps = 4;
   const activeProgressStep = Math.min(Math.max(step, 1), progressSteps);
   const progressFill = ((activeProgressStep - 1) / (progressSteps - 1)) * 100;
@@ -382,7 +381,7 @@ export default function App() {
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', photoUrl: HARDCODED_PROFILE_PHOTO_URL, googleEmail: '', googlePassword: '',
     recoveryEmail: '', recoveryPhone: '',
-    aircallRole: 'agent', aircallTeam: '',
+    aircallRole: 'agent',
     acCountry: 'Australia', acType: 'Mobile', acRegion: '4', acName: '',
     flowImportTarget: '', flowAdjustSteps: false, flowUseSimilar: false, flowNodes: [],
     xeroJobTitle: '', xeroSalary: '', xeroPayrollCalendar: 'Fortnightly'
@@ -466,69 +465,6 @@ export default function App() {
     } catch (error) {
       throw new Error(formatFetchFailure({ provider, method, url, error }));
     }
-  };
-
-  const _handleCreateUser = async (formData) => {
-    const apiId = formData.aircallApiId || parsedKeys.AIRCALL_API_ID || HARDCODED_AIRCALL_API_ID;
-    const apiToken = formData.aircallApiToken || parsedKeys.AIRCALL_API_TOKEN;
-    const teamId = String(formData.aircallTeam || '').trim();
-
-    if (!apiId || !apiToken) throw new Error('Aircall API credentials are required to create a user.');
-    if (!teamId) throw new Error('A team ID is required to assign the new user.');
-
-    const authHeader = `Basic ${btoa(`${apiId}:${apiToken}`)}`;
-    const createUserBody = {
-      email: formData.googleEmail,
-      first_name: formData.firstName,
-      last_name: formData.lastName,
-      ...(formData.aircallRole === 'admin' ? { admin: true } : {}),
-      ...(formData.aircallRole === 'supervisor' ? { supervisor: true } : {})
-    };
-
-    const createUserResponse = await fetch('https://api.aircall.io/v1/users', {
-      method: 'POST',
-      headers: {
-        Authorization: authHeader,
-        Accept: 'application/json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(createUserBody)
-    });
-
-    if (!createUserResponse.ok) {
-      throw new Error(`User creation failed: ${await formatErrorForDisplay(createUserResponse)}`);
-    }
-
-    const createUserPayload = await createUserResponse.json();
-    const userId = String(createUserPayload?.user?.id || '').trim();
-
-    if (!userId) throw new Error('User creation failed: Aircall API did not return a user ID.');
-
-    console.log('New Aircall User ID:', userId);
-
-    const assignTeamResponse = await fetch(`https://api.aircall.io/v1/teams/${encodeURIComponent(teamId)}/users`, {
-      method: 'POST',
-      headers: {
-        Authorization: authHeader,
-        Accept: 'application/json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ id: userId })
-    });
-
-    if (!assignTeamResponse.ok) {
-      throw new Error(`Team assignment failed: ${await formatErrorForDisplay(assignTeamResponse)}`);
-    }
-
-    const assignTeamPayload = await assignTeamResponse.json().catch(() => ({}));
-
-    return {
-      success: true,
-      userId,
-      teamId,
-      user: createUserPayload?.user || null,
-      teamAssignment: assignTeamPayload
-    };
   };
 
   const pushErrorLog = ({ source, action, message, meta = {}, stepNumber = step }) => {
@@ -734,86 +670,11 @@ export default function App() {
     },
 
     // 2. Aircall API (Users, Numbers)
-    assignAircallUserToTeam: async ({ authHeader, teamId, userId }) => {
-      const normalizedTeamId = String(teamId || '').trim();
-      const normalizedUserId = String(userId || '').trim();
-
-      if (!normalizedTeamId) {
-        throw new Error('Team ID is missing.');
-      }
-
-      if (!normalizedUserId) {
-        throw new Error('Aircall user ID is missing.');
-      }
-
-      const endpoint = `/v1/teams/${encodeURIComponent(normalizedTeamId)}/users`;
-      const requestOptions = [
-        {
-          description: 'x-www-form-urlencoded payload',
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body: new URLSearchParams({ users: normalizedUserId }).toString()
-        },
-        {
-          description: 'JSON payload fallback',
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ users: [normalizedUserId] })
-        }
-      ];
-
-      let lastResponseText = '';
-
-      for (const option of requestOptions) {
-        console.log(`Attempting POST to ${endpoint} with ${option.description}`);
-
-        const assignTeamResponse = await fetchWithDiagnostics({
-          provider: 'Aircall',
-          method: 'POST',
-          url: getAircallUrl(endpoint),
-          options: {
-            headers: option.headers,
-            body: option.body
-          }
-        });
-
-        if (assignTeamResponse.ok) {
-          try {
-            return await assignTeamResponse.json();
-          } catch {
-            return { success: true };
-          }
-        }
-
-        lastResponseText = await formatErrorForDisplay(assignTeamResponse);
-
-        if (assignTeamResponse.status !== 404) {
-          continue;
-        }
-
-        // A 404 on this endpoint can also mean payload mismatch in some Aircall accounts.
-        // Only hard-fail after all payload variants are exhausted.
-      }
-
-      if (lastResponseText.toLowerCase().includes('team') && lastResponseText.toLowerCase().includes('not')) {
-        throw new Error(`Team ID ${normalizedTeamId} does not exist in Aircall. ${lastResponseText}`.trim());
-      }
-
-      throw new Error(`Team assignment failed for team ${normalizedTeamId}: ${lastResponseText || 'Unknown Aircall error.'}`);
-    },
-
     createAircallUser: async (data, keys) => {
       console.log('EXECUTING SEQUENTIAL AIRCALL USER PROVISIONING...');
 
       const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
       const normalizedRole = normalizeAircallRole(data.aircallRole);
-      const normalizedTeamId = String(data.aircallTeam || '').trim();
 
       try {
         // Step 1: Create user with role baked into create payload
@@ -853,19 +714,11 @@ export default function App() {
           throw new Error('User creation failed: Aircall API did not return a user ID.');
         }
 
-        // Step 2: Assign team immediately
-        await api.assignAircallUserToTeam({
-          authHeader,
-          teamId: normalizedTeamId,
-          userId
-        });
-
         // Photo honesty check
         return {
           ...createPayload,
           createdUserId: userId,
           role: normalizedRole,
-          team_id: normalizedTeamId,
           photo_uploaded: false,
           message: 'Aircall API does not support photo uploads.'
         };
@@ -1041,22 +894,6 @@ export default function App() {
       } catch {
         return { success: true };
       }
-    },
-
-    addAircallUserToTeam: async ({ userId, teamId }, keys) => {
-      const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-      const normalizedUserId = String(userId || '').trim();
-      const normalizedTeamId = String(teamId || '').trim();
-
-      if (!normalizedUserId) {
-        throw new Error('Cannot assign Aircall team: missing user ID.');
-      }
-
-      return api.assignAircallUserToTeam({
-        authHeader,
-        teamId: normalizedTeamId,
-        userId: normalizedUserId
-      });
     },
 
     createAircallNumber: async (data, keys) => {
@@ -1311,10 +1148,7 @@ export default function App() {
     const { authHeader } = getAircallCredentials(keys);
     const headers = { Authorization: `Basic ${authHeader}` };
 
-    const [teams, users] = await Promise.all([
-      fetchAllAircallPages({ path: '/v1/teams', collectionKey: 'teams', headers }),
-      fetchAllAircallPages({ path: '/v1/users', collectionKey: 'users', headers })
-    ]);
+    const users = await fetchAllAircallPages({ path: '/v1/users', collectionKey: 'users', headers });
 
     const roleMap = new Map(DEFAULT_AIRCALL_ROLES.map((role) => [String(role.id), role]));
     for (const user of users) {
@@ -1328,10 +1162,7 @@ export default function App() {
     }
 
     return {
-      roles: Array.from(roleMap.values()),
-      teams: teams
-        .filter((team) => team?.id && team?.name)
-        .map((team) => ({ id: String(team.id), name: team.name }))
+      roles: Array.from(roleMap.values())
     };
   };
 
@@ -1356,7 +1187,7 @@ export default function App() {
 
     if (exactIdentity?.id) return String(exactIdentity.id);
 
-    throw new Error('User was created, but could not be re-located in Aircall by first name, last name, and email for team assignment.');
+    throw new Error('User was created, but could not be re-located in Aircall by first name, last name, and email.');
   };
 
   const startProvision = (items) => {
@@ -1390,20 +1221,17 @@ export default function App() {
     updateAuthStatus('aircall', 'inprogress', 'Authenticating API credentials...');
     await validateAircallAuth(keys);
 
-    updateAuthStatus('aircall', 'inprogress', 'Fetching all Aircall roles and teams...');
+    updateAuthStatus('aircall', 'inprogress', 'Fetching all Aircall roles...');
     const aircallCatalog = await fetchAircallCatalog(keys);
     setAircallRoles(aircallCatalog.roles);
-    setAircallTeams(aircallCatalog.teams);
-    setAircallCatalogStatus(`Loaded ${aircallCatalog.roles.length} roles and ${aircallCatalog.teams.length} teams from Aircall.`);
+    setAircallCatalogStatus(`Loaded ${aircallCatalog.roles.length} roles from Aircall.`);
 
     setFormData((prev) => {
       const roleExists = aircallCatalog.roles.some((role) => role.id === prev.aircallRole);
-      const teamExists = aircallCatalog.teams.some((team) => team.id === prev.aircallTeam);
 
       return {
         ...prev,
-        aircallRole: roleExists ? prev.aircallRole : (aircallCatalog.roles[0]?.id || ''),
-        aircallTeam: teamExists ? prev.aircallTeam : ''
+        aircallRole: roleExists ? prev.aircallRole : (aircallCatalog.roles[0]?.id || '')
       };
     });
 
@@ -1414,7 +1242,7 @@ export default function App() {
 
   const isCurrentStepValid = () => {
     if (step === 1) {
-      return Boolean(formData.aircallRole) && Boolean(formData.aircallTeam);
+      return Boolean(formData.aircallRole);
     }
 
     return true;
@@ -1514,10 +1342,10 @@ export default function App() {
 
         updateProvisionStatus('google-recovery', 'success', 'Recovery security info saved and verified.');
 
-        updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user with selected role and assigning team...');
+        updateProvisionStatus('aircall-user', 'inprogress', 'Creating Aircall user with selected role...');
         const aircallCreateResult = await executeWithErrorLogging({
           source: 'Aircall',
-          action: 'Create Aircall user and assign team',
+          action: 'Create Aircall user',
           stepNumber: 1,
           meta: { email: formData.googleEmail },
           task: () => api.createAircallUser(formData, parsedKeys)
@@ -1748,13 +1576,7 @@ Line 6: Xero Tenant ID (optional)`}
           </div>
 
           <div>
-            <Select
-              label="Assigned Team"
-              value={formData.aircallTeam}
-              onChange={(v) => updateData('aircallTeam', v)}
-              options={aircallTeams.map((team) => ({ value: team.id, label: team.name }))}
-            />
-            <p className="ph-auth-help">Role and team are applied during Aircall user creation in this step.</p>
+            <p className="ph-auth-help">Role is applied during Aircall user creation in this step.</p>
           </div>
         </div>
       </div>
@@ -1993,7 +1815,7 @@ Line 6: Xero Tenant ID (optional)`}
           </div>
           <ul style={{ fontSize: '0.875rem', color: 'var(--text-muted)', listStyle: 'none', lineHeight: '1.5' }}>
             <li>• User Created + Role Assigned ({formData.aircallRole})</li>
-            <li>• Team Assigned + Number Active ({formData.acName})</li>
+            <li>• Number Active ({formData.acName})</li>
             <li>• Call Flow Deployed</li>
           </ul>
         </div>
