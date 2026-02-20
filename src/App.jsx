@@ -309,16 +309,39 @@ const normalizeAircallRole = (role) => {
   return mappedRole;
 };
 
-const inferAircallRoleFromUser = (user) => {
-  if (!user || typeof user !== 'object') return '';
+const extractAircallRolesFromUser = (user) => {
+  if (!user || typeof user !== 'object') return [];
+
+  const roleSet = new Set();
+
+  const addRole = (roleValue) => {
+    try {
+      roleSet.add(normalizeAircallRole(roleValue));
+    } catch {
+      // Ignore unknown role shapes from API payloads.
+    }
+  };
+
+  const roleIds = Array.isArray(user.role_ids) ? user.role_ids : [];
+  roleIds.forEach((roleId) => addRole(roleId));
+
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  roles.forEach((roleEntry) => {
+    if (typeof roleEntry === 'string') addRole(roleEntry);
+    if (roleEntry && typeof roleEntry === 'object') {
+      addRole(roleEntry.id);
+      addRole(roleEntry.name);
+    }
+  });
 
   if (typeof user.role === 'string' && user.role.trim()) {
-    return String(user.role).trim().toLowerCase();
+    addRole(user.role);
   }
 
-  if (user.admin === true) return 'admin';
-  if (user.supervisor === true) return 'supervisor';
-  return 'agent';
+  if (user.admin === true || user.is_admin === true) addRole('admin');
+  if (user.supervisor === true || user.is_supervisor === true) addRole('supervisor');
+
+  return Array.from(roleSet);
 };
 
 const isGoogleUserPendingCreation = (status, responseText = '') => {
@@ -1241,9 +1264,24 @@ export default function App() {
         if (!createdAircallUserId) throw new Error('Aircall user was created but no user ID was returned.');
 
         const selectedAircallRole = normalizeAircallRole(formData.aircallRole);
-        const createdAircallRole = inferAircallRoleFromUser(aircallCreateResult?.user);
-        if (createdAircallRole && createdAircallRole !== selectedAircallRole) {
-          throw new Error(`Aircall role mismatch. Expected "${selectedAircallRole}", got "${createdAircallRole}".`);
+        const creationRoles = extractAircallRolesFromUser(aircallCreateResult?.user);
+
+        let verificationRoles = [];
+        const shouldFetchVerification = !creationRoles.includes(selectedAircallRole);
+        if (shouldFetchVerification) {
+          const verifiedAircallUser = await executeWithErrorLogging({
+            source: 'Aircall',
+            action: 'Verify Aircall role assignment',
+            stepNumber: 1,
+            meta: { userId: createdAircallUserId, expectedRole: selectedAircallRole },
+            task: () => api.getAircallUserById({ userId: createdAircallUserId }, parsedKeys)
+          });
+          verificationRoles = extractAircallRolesFromUser(verifiedAircallUser?.user);
+        }
+
+        const resolvedRoles = verificationRoles.length > 0 ? verificationRoles : creationRoles;
+        if (resolvedRoles.length > 0 && !resolvedRoles.includes(selectedAircallRole)) {
+          throw new Error(`Aircall role mismatch. Expected "${selectedAircallRole}", got "${resolvedRoles.join(', ')}". User ID: ${createdAircallUserId}.`);
         }
 
         setAircallUserId(createdAircallUserId);
