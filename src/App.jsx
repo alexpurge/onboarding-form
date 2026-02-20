@@ -309,20 +309,6 @@ const normalizeAircallRole = (role) => {
   return mappedRole;
 };
 
-const buildAircallRoleFields = (role) => {
-  const normalizedRole = normalizeAircallRole(role);
-
-  if (normalizedRole === 'admin') {
-    return { admin: true, supervisor: false };
-  }
-
-  if (normalizedRole === 'supervisor') {
-    return { admin: false, supervisor: true };
-  }
-
-  return { admin: false, supervisor: false };
-};
-
 const inferAircallRoleFromUser = (user) => {
   if (!user || typeof user !== 'object') return '';
 
@@ -677,17 +663,13 @@ export default function App() {
       const normalizedRole = normalizeAircallRole(data.aircallRole);
 
       try {
-        // Step 1: Create user with role baked into create payload
-        const createBody = new URLSearchParams();
-        createBody.set('first_name', data.firstName || '');
-        createBody.set('last_name', data.lastName || '');
-        createBody.set('email', data.googleEmail || '');
-        if (normalizedRole === 'admin') {
-          createBody.set('admin', 'true');
-        }
-        if (normalizedRole === 'supervisor') {
-          createBody.set('supervisor', 'true');
-        }
+        const createBody = {
+          first_name: data.firstName || '',
+          last_name: data.lastName || '',
+          email: data.googleEmail || '',
+          is_admin: normalizedRole === 'admin',
+          role_ids: [normalizedRole]
+        };
 
         const createResponse = await fetchWithDiagnostics({
           provider: 'Aircall',
@@ -697,9 +679,9 @@ export default function App() {
             headers: {
               Authorization: `Basic ${authHeader}`,
               Accept: 'application/json',
-              'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+              'Content-Type': 'application/json'
             },
-            body: createBody.toString()
+            body: JSON.stringify(createBody)
           }
         });
 
@@ -755,87 +737,6 @@ export default function App() {
       }
 
       return response.json();
-    },
-
-    updateAircallUserRole: async ({ userId, role }, keys) => {
-      const authHeader = btoa(`${keys.AIRCALL_API_ID}:${keys.AIRCALL_API_TOKEN}`);
-      const normalizedUserId = String(userId || '').trim();
-      const normalizedRole = normalizeAircallRole(role);
-
-      if (!normalizedUserId) {
-        throw new Error('Cannot assign Aircall role: missing user ID.');
-      }
-
-      const roleFlags = buildAircallRoleFields(normalizedRole);
-      const updateBody = new URLSearchParams();
-      updateBody.set('admin', String(roleFlags.admin));
-      updateBody.set('supervisor', String(roleFlags.supervisor));
-
-      const response = await fetchWithDiagnostics({
-        provider: 'Aircall',
-        method: 'PUT',
-        url: getAircallUrl(`/v1/users/${encodeURIComponent(normalizedUserId)}`),
-        options: {
-          headers: {
-            Authorization: `Basic ${authHeader}`,
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body: updateBody.toString()
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`PUT /v1/users/${encodeURIComponent(normalizedUserId)}: ${await formatErrorForDisplay(response)}`);
-      }
-
-      let updatePayload = {};
-      try {
-        updatePayload = await response.json();
-      } catch {
-        updatePayload = { success: true };
-      }
-
-      const verifyRole = async () => {
-        const verifyResponse = await fetchWithDiagnostics({
-          provider: 'Aircall',
-          method: 'GET',
-          url: getAircallUrl(`/v1/users/${encodeURIComponent(normalizedUserId)}`),
-          options: {
-            headers: {
-              Authorization: `Basic ${authHeader}`,
-              Accept: 'application/json'
-            }
-          }
-        });
-
-        if (!verifyResponse.ok) {
-          throw new Error(`Role update sent, but verification failed: ${await formatErrorForDisplay(verifyResponse)}`);
-        }
-
-        const verifyPayload = await verifyResponse.json();
-        return inferAircallRoleFromUser(verifyPayload?.user);
-      };
-
-      let verifiedRole = '';
-      const verificationAttempts = 4;
-      for (let attempt = 1; attempt <= verificationAttempts; attempt += 1) {
-        verifiedRole = await verifyRole();
-        if (verifiedRole === normalizedRole) break;
-        if (attempt < verificationAttempts) {
-          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
-        }
-      }
-
-      if (verifiedRole !== normalizedRole) {
-        throw new Error(`Role update did not persist in Aircall. Expected "${normalizedRole}", got "${verifiedRole || 'unknown'}".`);
-      }
-
-      return {
-        ...updatePayload,
-        verified: true,
-        role: verifiedRole
-      };
     },
 
     updateAircallUserPicture: async ({ userId, pictureUrl }, keys) => {
@@ -1341,15 +1242,8 @@ export default function App() {
 
         const selectedAircallRole = normalizeAircallRole(formData.aircallRole);
         const createdAircallRole = inferAircallRoleFromUser(aircallCreateResult?.user);
-        if (createdAircallRole !== selectedAircallRole) {
-          updateProvisionStatus('aircall-user', 'inprogress', `Aircall user created. Applying role "${selectedAircallRole}"...`);
-          await executeWithErrorLogging({
-            source: 'Aircall',
-            action: 'Assign Aircall user role',
-            stepNumber: 1,
-            meta: { userId: createdAircallUserId, role: selectedAircallRole },
-            task: () => api.updateAircallUserRole({ userId: createdAircallUserId, role: selectedAircallRole }, parsedKeys)
-          });
+        if (createdAircallRole && createdAircallRole !== selectedAircallRole) {
+          throw new Error(`Aircall role mismatch. Expected "${selectedAircallRole}", got "${createdAircallRole}".`);
         }
 
         setAircallUserId(createdAircallUserId);
